@@ -62,6 +62,11 @@ const PRODUCT_LINKED_TABLES = {
   }
 };
 
+const PURCHASE_CONTRACT_TABLE_ID = "tblzaz7hDLRRPVeEz";
+const FACTORY_TABLE_ID = "tblOCrtTa8WPxPDja";
+const PURCHASE_CONTRACT_FIELD_IDS = ["fld0NoOFG9iFNVjQD"];
+const FACTORY_FIELD_IDS = ["fld6OzLLUSc1DwQt5", "fldEQlpy2q1X8C8sP"];
+
 const CONTRACT_LINKED_TABLES = {
   incoterms: {
     tableId: "tblynLHJbKXFrLhTc",
@@ -122,6 +127,10 @@ export async function loadConfirmationFromAirtable({ config, recordId }) {
     saleExistenceIds,
     CONFIRMATION_EXISTENCIA_FIELD_IDS
   );
+  const purchaseOriginByPurchaseItemId = await loadPurchaseOriginByPurchaseItemId(
+    client,
+    purchaseItemRecords
+  );
   const linkedNames = {
     ...(await loadContractLinkedNames(client, contractRecord)),
     ...(await loadProductLinkedNames(client, purchaseItemRecords))
@@ -131,6 +140,7 @@ export async function loadConfirmationFromAirtable({ config, recordId }) {
     record: contractRecord,
     saleItemRecords,
     purchaseItemRecords,
+    purchaseOriginByPurchaseItemId,
     existenceRecords,
     linkedNames,
     company: config.company
@@ -141,6 +151,7 @@ function normalizeConfirmation({
   record,
   saleItemRecords,
   purchaseItemRecords,
+  purchaseOriginByPurchaseItemId,
   existenceRecords,
   linkedNames,
   company
@@ -156,6 +167,7 @@ function normalizeConfirmation({
       normalizeSaleItem({
         saleItemRecord,
         purchaseItemsById,
+        purchaseOriginByPurchaseItemId,
         existenceRecords: existencesBySaleItemId.get(saleItemRecord.id) || [],
         linkedNames
       })
@@ -174,8 +186,10 @@ function normalizeConfirmation({
     orderNumber: firstText(fields[CONTRATO_VENTA.NUMERO_PEDIDO]),
     date: dateValue(fields[CONTRATO_VENTA.FECHA]),
     currency: firstText(fields[CONTRATO_VENTA.MONEDA]) || "EUR",
-    deliveryTerms: linkedText(fields[CONTRATO_VENTA.INCOTERM], linkedNames.incoterms),
-    paymentTerms: linkedText(
+    deliveryTerms: normalizeDeliveryTerm(
+      linkedText(fields[CONTRATO_VENTA.INCOTERM], linkedNames.incoterms)
+    ),
+    paymentTerms: firstLinkedText(
       fields[CONTRATO_VENTA.TERMINOS_PAGO],
       linkedNames.paymentTerms
     ),
@@ -195,6 +209,9 @@ function normalizeConfirmation({
     },
     hasSheetMaterial,
     items,
+    origin: dedupe(
+      items.map((item) => item.origin).filter(Boolean)
+    ).join(" / "),
     totalQuantity
   };
 }
@@ -202,23 +219,28 @@ function normalizeConfirmation({
 function normalizeSaleItem({
   saleItemRecord,
   purchaseItemsById,
+  purchaseOriginByPurchaseItemId,
   existenceRecords,
   linkedNames
 }) {
   const fields = fieldsOf(saleItemRecord);
-  const purchaseItemId = recordIds(fields[ITEM_VENTA.ITEM_COMPRA])[0];
-  const purchaseRecord = purchaseItemsById.get(purchaseItemId);
-  const purchaseFields = fieldsOf(purchaseRecord);
+  const purchaseItemIds = recordIds(fields[ITEM_VENTA.ITEM_COMPRA]);
+  const purchaseItemId = purchaseItemIds[0];
+  const primaryPurchaseRecord = purchaseItemsById.get(purchaseItemId);
+  const purchaseRecords = purchaseItemIds
+    .map((id) => purchaseItemsById.get(id))
+    .filter(Boolean);
+  const primaryPurchaseFields = fieldsOf(primaryPurchaseRecord);
   const measure = buildMeasure({
-    thickness: numberValue(purchaseFields[ITEM_COMPRA.ESPESOR]),
-    width: firstText(purchaseFields[ITEM_COMPRA.ANCHO]),
-    length: firstText(purchaseFields[ITEM_COMPRA.LARGO])
+    thickness: numberValue(primaryPurchaseFields[ITEM_COMPRA.ESPESOR]),
+    width: firstText(primaryPurchaseFields[ITEM_COMPRA.ANCHO]),
+    length: firstText(primaryPurchaseFields[ITEM_COMPRA.LARGO])
   });
   const price =
     numberValue(fields[ITEM_VENTA.PRECIO]) ||
     numberValue(fields[ITEM_VENTA.PRECIO_EUR]) ||
-    numberValue(purchaseFields[ITEM_COMPRA.PRECIO_EUR]) ||
-    numberValue(purchaseFields[ITEM_COMPRA.PRECIO]) ||
+    numberValue(primaryPurchaseFields[ITEM_COMPRA.PRECIO_EUR]) ||
+    numberValue(primaryPurchaseFields[ITEM_COMPRA.PRECIO]) ||
     0;
   const existenceQuantity = roundQuantity(
     existenceRecords.reduce((sum, existence) => {
@@ -237,19 +259,20 @@ function normalizeSaleItem({
     numberValue(fields[ITEM_VENTA.PESO_CARGADO]) ||
     numberValue(fields[ITEM_VENTA.NETO_CARGADO]) ||
     existenceQuantity ||
-    numberValue(purchaseFields[ITEM_COMPRA.NETO_CONTRATO]) ||
+    numberValue(primaryPurchaseFields[ITEM_COMPRA.NETO_CONTRATO]) ||
     0;
   const materialType = linkedText(
-    purchaseFields[ITEM_COMPRA.TIPO_MATERIAL],
+    primaryPurchaseFields[ITEM_COMPRA.TIPO_MATERIAL],
     linkedNames.materialTypes
   );
+  const coilMinMax = summarizeCoilWeights(purchaseRecords);
   const specification = buildSpecification({
-    material: linkedText(purchaseFields[ITEM_COMPRA.MATERIAL], linkedNames.materials),
-    quality: linkedText(purchaseFields[ITEM_COMPRA.CALIDAD], linkedNames.qualities),
-    coating: linkedText(purchaseFields[ITEM_COMPRA.RECUBRIMIENTO], linkedNames.coatings),
-    finish: linkedText(purchaseFields[ITEM_COMPRA.ACABADO], linkedNames.finishes),
+    material: linkedText(primaryPurchaseFields[ITEM_COMPRA.MATERIAL], linkedNames.materials),
+    quality: linkedText(primaryPurchaseFields[ITEM_COMPRA.CALIDAD], linkedNames.qualities),
+    coating: linkedText(primaryPurchaseFields[ITEM_COMPRA.RECUBRIMIENTO], linkedNames.coatings),
+    finish: linkedText(primaryPurchaseFields[ITEM_COMPRA.ACABADO], linkedNames.finishes),
     measure,
-    fallback: firstText(purchaseFields[ITEM_COMPRA.ITEM])
+    fallback: firstText(primaryPurchaseFields[ITEM_COMPRA.ITEM])
   });
 
   return {
@@ -257,16 +280,22 @@ function normalizeSaleItem({
     number: firstText(fields[ITEM_VENTA.NUMERO_ITEM]),
     name: firstText(fields[ITEM_VENTA.ITEM]),
     purchaseItemId,
-    purchaseItemName: firstText(purchaseFields[ITEM_COMPRA.ITEM]),
+    purchaseItemName: firstText(primaryPurchaseFields[ITEM_COMPRA.ITEM]),
+    origin: dedupe(
+      purchaseItemIds
+        .map((id) => purchaseOriginByPurchaseItemId.get(id))
+        .filter(Boolean)
+        .flatMap((origin) => origin.split(" / "))
+    ).join(" / "),
     materialType,
     specification,
     measure,
-    minNet: numberValue(purchaseFields[ITEM_COMPRA.NETO_MINIMO]),
-    maxNet: numberValue(purchaseFields[ITEM_COMPRA.NETO_MAXIMO]),
+    minNet: coilMinMax.minNet,
+    maxNet: coilMinMax.maxNet,
     sheetUnits:
       numberValue(fields[ITEM_VENTA.NUMERO_CHAPAS]) ||
       existenceRecords.length ||
-      recordIds(purchaseFields[ITEM_COMPRA.EXISTENCIAS]).length ||
+      recordIds(primaryPurchaseFields[ITEM_COMPRA.EXISTENCIAS]).length ||
       undefined,
     quantity: roundQuantity(quantity),
     price,
@@ -276,6 +305,28 @@ function normalizeSaleItem({
     existences: existenceRecords.map((existenceRecord) =>
       normalizeExistence(existenceRecord, { fallbackSpecification: specification, price })
     )
+  };
+}
+
+function summarizeCoilWeights(purchaseRecords) {
+  const values = purchaseRecords.flatMap((record) => {
+    const purchaseFields = fieldsOf(record);
+    const minNet = numberValue(purchaseFields[ITEM_COMPRA.NETO_MINIMO]);
+    const maxNet = numberValue(purchaseFields[ITEM_COMPRA.NETO_MAXIMO]);
+    if (minNet === undefined && maxNet === undefined) return [];
+    return [{ minNet, maxNet }];
+  });
+  if (!values.length) return { minNet: undefined, maxNet: undefined };
+
+  const minNet = Math.min(
+    ...values.map((value) => value.minNet).filter((value) => value !== undefined)
+  );
+  const maxNet = Math.max(
+    ...values.map((value) => value.maxNet).filter((value) => value !== undefined)
+  );
+  return {
+    minNet: Number.isFinite(minNet) ? minNet : undefined,
+    maxNet: Number.isFinite(maxNet) ? maxNet : undefined
   };
 }
 
@@ -306,6 +357,84 @@ function normalizeExistence(record, { fallbackSpecification, price }) {
   };
 }
 
+async function loadPurchaseOriginByPurchaseItemId(client, purchaseItemRecords) {
+  const purchaseItemToContractIds = new Map();
+  const purchaseContractIds = [
+    ...new Set(
+      purchaseItemRecords.flatMap((record) => {
+        const ids = recordIds(fieldsOf(record)[ITEM_COMPRA.CONTRATO]);
+        purchaseItemToContractIds.set(record.id, ids);
+        return ids;
+      })
+    )
+  ].filter(Boolean);
+
+  if (!purchaseContractIds.length) return new Map();
+
+  const purchaseContractRecords = await client.listRecordsByIds(
+    PURCHASE_CONTRACT_TABLE_ID,
+    purchaseContractIds,
+    PURCHASE_CONTRACT_FIELD_IDS
+  );
+  const purchaseContractToFactoryIds = new Map(
+    purchaseContractRecords.map((record) => [
+      record.id,
+      recordIds(fieldsOf(record)[PURCHASE_CONTRACT_FIELD_IDS[0]])
+    ])
+  );
+
+  const factoryIds = [
+    ...new Set(
+      purchaseContractRecords.flatMap((record) => purchaseContractToFactoryIds.get(record.id) || [])
+    )
+  ].filter(Boolean);
+  const factoryRecords = await client.listRecordsByIds(
+    FACTORY_TABLE_ID,
+    factoryIds,
+    FACTORY_FIELD_IDS
+  );
+  const factoryById = new Map(
+    factoryRecords
+      .map((record) => [
+        record.id,
+        {
+          name: firstText(fieldsOf(record)[FACTORY_FIELD_IDS[0]]),
+          country: firstText(fieldsOf(record)[FACTORY_FIELD_IDS[1]])
+        }
+      ])
+      .filter(([, factory]) => factory.name)
+  );
+
+  const originsByPurchaseItemId = new Map();
+  for (const [purchaseItemId, contractIds] of purchaseItemToContractIds) {
+    const factoryIdsForItem = [
+      ...new Set(
+        contractIds.flatMap((contractId) =>
+          purchaseContractToFactoryIds.get(contractId) || []
+        )
+      )
+    ];
+    if (!factoryIdsForItem.length) continue;
+
+    const origins = dedupe(
+      factoryIdsForItem
+        .map((factoryId) => {
+          const factory = factoryById.get(factoryId);
+          if (!factory) return null;
+          if (!factory.country) return factory.name;
+          return `${factory.name} (${factory.country})`;
+        })
+        .filter(Boolean)
+    );
+
+    if (origins.length) {
+      originsByPurchaseItemId.set(purchaseItemId, origins.join(" / "));
+    }
+  }
+
+  return originsByPurchaseItemId;
+}
+
 export function getConfirmationLines(confirmation, mode) {
   if (mode === "detail") {
     return confirmation.items.flatMap((item) => {
@@ -315,6 +444,8 @@ export function getConfirmationLines(confirmation, mode) {
             itemNumber: item.number,
             specification: item.specification,
             factoryId: "",
+            minNet: item.minNet,
+            maxNet: item.maxNet,
             quantity: item.quantity,
             price: item.price,
             amount: item.amount
@@ -325,6 +456,8 @@ export function getConfirmationLines(confirmation, mode) {
         itemNumber: item.number,
         specification: item.specification || existence.specification,
         factoryId: existence.factoryId,
+        minNet: item.minNet,
+        maxNet: item.maxNet,
         quantity: existence.quantity,
         price: item.price || existence.price,
         amount: roundMoney(existence.quantity * (item.price || existence.price))
@@ -336,6 +469,8 @@ export function getConfirmationLines(confirmation, mode) {
     itemNumber: item.number,
     specification: item.specification,
     units: item.sheetUnits,
+    minNet: item.minNet,
+    maxNet: item.maxNet,
     quantity: item.quantity,
     price: item.price,
     amount: item.amount
@@ -406,6 +541,22 @@ function linkedText(value, names) {
     .map((id) => names?.get(id))
     .filter(Boolean);
   return resolved.length ? [...new Set(resolved)].join(" / ") : textValue(value);
+}
+
+function firstLinkedText(value, names) {
+  return linkedText(value, names);
+}
+
+function normalizeDeliveryTerm(value) {
+  const raw = String(value || "").trim();
+  const match = raw.match(
+    /\b(?:EXW|FCA|FAS|FOB|CFR|CIF|CPT|CIP|DAP|DAT|DPU|DDP)\b/i
+  );
+  return match ? match[0].toUpperCase() : raw;
+}
+
+function dedupe(values) {
+  return [...new Set(values)];
 }
 
 function buildSpecification({ material, quality, coating, finish, measure, fallback }) {

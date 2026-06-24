@@ -91,6 +91,7 @@ export const ITEM_VENTA = {
 
 export const ITEM_COMPRA = {
   ITEM: "fld0CH2JzvCx1Ly8x",
+  CONTRATO: "fldLD3Ipsj121kVCL",
   MATERIAL: "fldnrspm1JWHaxr3r",
   TIPO_MATERIAL: "fld4lkih5T3Omocet",
   CALIDAD: "fldAqQp8l2ik11eMW",

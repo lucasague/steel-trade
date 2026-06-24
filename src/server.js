@@ -54,6 +54,14 @@ app.get("/api/confirmations/:recordId/metadata", async (request) => {
 });
 
 app.get("/api/confirmations/:recordId/:filename", async (request, reply) => {
+  const filename = String(request.params.filename || "").toLowerCase();
+  if (!filename.endsWith(".docx")) {
+    reply.code(400);
+    return {
+      error: "Confirmaciones: solo se genera DOCX."
+    };
+  }
+
   const confirmation = await loadConfirmationFromAirtable({
     config,
     recordId: request.params.recordId

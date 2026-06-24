@@ -14,9 +14,69 @@ test("inserts the merchandise table inside the confirmation Word", async () => {
 
   assert.ok(merchandiseIndex > -1);
   assert.ok(tableIndex > merchandiseIndex);
-  assert.match(documentXml, /FORMATO 3 - CHAPA AGRUPADO/);
   assert.match(documentXml, /UNIDADES/);
   assert.match(documentXml, /S235JR/);
+  assert.match(documentXml, /PESO BOBINA \(MT\)/);
+  assert.match(documentXml, /10,000 - 15,000 MT/);
+});
+
+test("replaces merchandise header and origin line", async () => {
+  const buffer = await renderConfirmationDocx(
+    {
+      ...fakeConfirmation(),
+      origin: "Planta Madrid (ES / FR)",
+      deliveryTerms: "DDP - Delivered Duty Paid",
+      items: [
+        {
+          ...fakeConfirmation().items[0],
+          sheetUnits: 20,
+          quantity: 50,
+          existences: []
+        }
+      ]
+    },
+    {
+      mode: "formato1"
+    }
+  );
+  const zip = await JSZip.loadAsync(buffer);
+  const documentXml = await zip.file("word/document.xml").async("string");
+
+  assert.match(documentXml, /MERCANCÍA/);
+  assert.doesNotMatch(documentXml, /MERCANCÍA:/);
+  assert.match(documentXml, /ORIGEN: Planta Madrid \(ES \/ FR\)/);
+  assert.match(documentXml, /CONDICIONES DE ENTREGA: DDP/);
+});
+
+test("adds bank details only when payment is transfer", async () => {
+  const transferBuffer = await renderConfirmationDocx(
+    {
+      ...fakeConfirmation(),
+      paymentTerms: "Transferencia"
+    },
+    {
+      mode: "formato3"
+    }
+  );
+  const transferDoc = await JSZip.loadAsync(transferBuffer);
+  const transferXml = await transferDoc.file("word/document.xml").async("string");
+
+  assert.match(transferXml, /CAIXA BANK - ES40 2100 6428 2213 0012 3884/);
+  assert.match(transferXml, /CUANDO EL PAGO ES POR TRANSFERENCIA/);
+
+  const nonTransferBuffer = await renderConfirmationDocx(
+    {
+      ...fakeConfirmation(),
+      paymentTerms: "Confirming"
+    },
+    {
+      mode: "formato3"
+    }
+  );
+  const nonTransferDoc = await JSZip.loadAsync(nonTransferBuffer);
+  const nonTransferXml = await nonTransferDoc.file("word/document.xml").async("string");
+
+  assert.doesNotMatch(nonTransferXml, /CAIXA BANK - ES40 2100 6428 2213 0012 3884/);
 });
 
 function fakeConfirmation() {
@@ -47,6 +107,8 @@ function fakeConfirmation() {
         quantity: 200,
         price: 860,
         amount: 172000,
+        minNet: 10,
+        maxNet: 15,
         existences: []
       }
     ]

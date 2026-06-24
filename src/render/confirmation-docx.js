@@ -5,7 +5,7 @@ import { getConfirmationLines } from "../services/confirmation-service.js";
 
 const TEMPLATE_URL = new URL("../templates/confirmacion-pedido.docx", import.meta.url);
 const VAT_RATE = 0.21;
-const TABLE_WIDTHS = [650, 2600, 1250, 1100, 1150, 1250, 1300];
+const TABLE_WIDTHS = [650, 2350, 950, 1200, 1100, 1100, 1300, 1200];
 
 export async function renderConfirmationDocx(confirmation, { mode }) {
   const zip = await JSZip.loadAsync(readFileSync(TEMPLATE_URL));
@@ -39,9 +39,11 @@ export async function renderConfirmationDocx(confirmation, { mode }) {
 
 function buildReplacements(confirmation) {
   const customer = confirmation.customer;
+  const origin = confirmation.origin || "Según contrato de compra";
   const packing = confirmation.hasSheetMaterial
     ? "PACKING: Según condiciones del pedido"
     : "PACKING: Standard export packing";
+  const showsBankDetails = isTransferPaymentTerm(confirmation.paymentTerms);
 
   return [
     ["CLIENTE XXXXX", customer.fiscalName || customer.commercialName || ""],
@@ -49,11 +51,11 @@ function buildReplacements(confirmation) {
     ["CIF CLLIENTE XXX", customer.taxId || ""],
     ["CONFIRMACIÓN DE PEDIDO: STA – 2026-XXXX", `CONFIRMACIÓN DE PEDIDO: ${confirmation.contractNumber}`],
     ["CONFIRMACIÓN DE PEDIDO: STA - 2026-XXXX", `CONFIRMACIÓN DE PEDIDO: ${confirmation.contractNumber}`],
-    ["MERCANCIA :", "MERCANCÍA:"],
-    ["MERCANCIA:", "MERCANCÍA:"],
-    ["MARCANCIA :", "MERCANCÍA:"],
-    ["MARCANCIA:", "MERCANCÍA:"],
-    ["ORIGEN: FABRICA Y PAÍS", "ORIGEN: Según contrato de compra"],
+    ["MERCANCIA :", "MERCANCÍA"],
+    ["MERCANCIA:", "MERCANCÍA"],
+    ["MARCANCIA :", "MERCANCÍA"],
+    ["MARCANCIA:", "MERCANCÍA"],
+    ["ORIGEN: FABRICA Y PAÍS", `ORIGEN: ${origin}`],
     [
       "CANTIDAD TOTAL: 600,000 MT (+ / - 10%)",
       `CANTIDAD TOTAL: ${formatNumber(confirmation.totalQuantity, 3)} MT ${formatTolerance(confirmation)}`
@@ -62,10 +64,7 @@ function buildReplacements(confirmation) {
       "CONDICIONES DE ENTREGA: INCOTERM DE LA VENTA",
       `CONDICIONES DE ENTREGA: ${confirmation.deliveryTerms || ""}`
     ],
-    [
-      "PESO BOBINA: RANGO DEL ITEM DE COMPRA",
-      confirmation.hasSheetMaterial ? "" : `PESO BOBINA: ${coilWeightRanges(confirmation)}`
-    ],
+    ["PESO BOBINA: RANGO DEL ITEM DE COMPRA", ""],
     [
       "PACKING:  Standard export packing  ( PARA TODO MENOS PARA CHAPA Y  CALIENTE",
       packing
@@ -74,8 +73,24 @@ function buildReplacements(confirmation) {
       "CONDICIONES DE PAGO :  LA FORMA DE PAGO DEL PEDIDO",
       `CONDICIONES DE PAGO: ${confirmation.paymentTerms || ""}`
     ],
+    ["CUANDO EL PAGO ES POR TRANSFERENCIA", showsBankDetails ? "CUANDO EL PAGO ES POR TRANSFERENCIA" : ""],
+    [
+      "CAIXA BANK - ES40 2100 6428 2213 0012 3884",
+      showsBankDetails ? "CAIXA BANK - ES40 2100 6428 2213 0012 3884" : ""
+    ],
     ["TECHOS FALSTECH", customer.fiscalName || customer.commercialName || ""]
   ];
+}
+
+function isTransferPaymentTerm(paymentTerms) {
+  const normalized = String(paymentTerms || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  return (
+    normalized === "transferencia" ||
+    normalized.includes("transferencia")
+  );
 }
 
 function customerAddress(customer) {
@@ -102,16 +117,13 @@ function toPercent(value) {
   return `${Math.round(value * 100)}%`;
 }
 
-function coilWeightRanges(confirmation) {
-  const ranges = confirmation.items
-    .filter((item) => item.minNet || item.maxNet)
-    .map((item) => {
-      if (item.minNet && item.maxNet) {
-        return `${formatNumber(item.minNet, 3)}-${formatNumber(item.maxNet, 3)} MT`;
-      }
-      return `${formatNumber(item.minNet || item.maxNet, 3)} MT`;
-    });
-  return ranges.length ? [...new Set(ranges)].join(" / ") : "Según ítem de compra";
+function formatCoilWeightRange(minNet, maxNet) {
+  if (minNet === undefined && maxNet === undefined) return "";
+  if (minNet === undefined) return `${formatNumber(maxNet, 3)} MT`;
+  if (maxNet === undefined || maxNet === minNet) {
+    return `${formatNumber(minNet, 3)} MT`;
+  }
+  return `${formatNumber(minNet, 3)} - ${formatNumber(maxNet, 3)} MT`;
 }
 
 function formatDateEs(value) {
@@ -126,20 +138,19 @@ function buildMerchandiseTableXml(confirmation, mode) {
   const vat = roundMoney(subtotal * VAT_RATE);
   const total = roundMoney(subtotal + vat);
   const rows = [
-    [cell(formatModeLabel(mode), { span: 7, bold: true, align: "center", shade: "D9EAF7" })],
     buildHeaderRow(mode),
     ...lines.map((line, index) => buildLineRow(line, index + 1, mode)),
     [
-      cell("", { span: 4 }),
+      cell("", { span: 5 }),
       cell(formatNumber(sum(lines, "quantity"), 3), { align: "right", bold: true }),
       cell(""),
       cell(formatMoney(subtotal), { align: "right", bold: true })
     ],
     [
-      cell("IVA 21%", { span: 6, align: "right", bold: true }),
+      cell("IVA 21%", { span: 7, align: "right", bold: true }),
       cell(formatMoney(vat), { align: "right", bold: true })
     ],
-    [cell(formatMoney(total), { span: 7, align: "right", bold: true, shade: "EDEDED" })]
+    [cell(formatMoney(total), { span: 8, align: "right", bold: true, shade: "EDEDED" })]
   ];
 
   return [
@@ -155,18 +166,13 @@ function buildMerchandiseTableXml(confirmation, mode) {
   ].join("");
 }
 
-function formatModeLabel(mode) {
-  if (mode === "detail") return "FORMATO 2 - DETALLADO";
-  if (mode === "formato3") return "FORMATO 3 - CHAPA AGRUPADO";
-  return "FORMATO 1 - AGRUPADO";
-}
-
 function buildHeaderRow(mode) {
   if (mode === "detail") {
     return [
       cell("ITEM", { bold: true, align: "center", shade: "EDEDED" }),
       cell("ESPECIFICACIÓN", { bold: true, align: "center", shade: "EDEDED" }),
       cell("NÚMERO DE BOBINA", { span: 2, bold: true, align: "center", shade: "EDEDED" }),
+      cell("PESO BOBINA (MT)", { bold: true, align: "center", shade: "EDEDED" }),
       cell("CANTIDAD (MT)", { bold: true, align: "center", shade: "EDEDED" }),
       cell("PRECIO (EUR/MT)", { bold: true, align: "center", shade: "EDEDED" }),
       cell("TOTAL EUR", { bold: true, align: "center", shade: "EDEDED" })
@@ -177,6 +183,7 @@ function buildHeaderRow(mode) {
       cell("ITEM", { bold: true, align: "center", shade: "EDEDED" }),
       cell("ESPECIFICACIÓN", { span: 2, bold: true, align: "center", shade: "EDEDED" }),
       cell("UNIDADES", { bold: true, align: "center", shade: "EDEDED" }),
+      cell("PESO BOBINA (MT)", { bold: true, align: "center", shade: "EDEDED" }),
       cell("CANTIDAD (MT)", { bold: true, align: "center", shade: "EDEDED" }),
       cell("PRECIO (EUR/MT)", { bold: true, align: "center", shade: "EDEDED" }),
       cell("TOTAL EUR", { bold: true, align: "center", shade: "EDEDED" })
@@ -185,6 +192,7 @@ function buildHeaderRow(mode) {
   return [
     cell("ITEM", { bold: true, align: "center", shade: "EDEDED" }),
     cell("ESPECIFICACIÓN", { span: 3, bold: true, align: "center", shade: "EDEDED" }),
+    cell("PESO BOBINA (MT)", { bold: true, align: "center", shade: "EDEDED" }),
     cell("CANTIDAD (MT)", { bold: true, align: "center", shade: "EDEDED" }),
     cell("PRECIO (EUR/MT)", { bold: true, align: "center", shade: "EDEDED" }),
     cell("TOTAL EUR", { bold: true, align: "center", shade: "EDEDED" })
@@ -198,6 +206,7 @@ function buildLineRow(line, index, mode) {
       cell(itemNumber, { align: "center" }),
       cell(line.specification),
       cell(line.factoryId || "", { span: 2 }),
+      cell(formatCoilWeightRange(line.minNet, line.maxNet), { align: "right" }),
       cell(formatNumber(line.quantity, 3), { align: "right" }),
       cell(formatMoney(line.price), { align: "right" }),
       cell(formatMoney(line.amount), { align: "right" })
@@ -208,6 +217,7 @@ function buildLineRow(line, index, mode) {
       cell(itemNumber, { align: "center" }),
       cell(line.specification, { span: 2 }),
       cell(formatUnits(line.units), { align: "right" }),
+      cell(formatCoilWeightRange(line.minNet, line.maxNet), { align: "right" }),
       cell(formatNumber(line.quantity, 3), { align: "right" }),
       cell(formatMoney(line.price), { align: "right" }),
       cell(formatMoney(line.amount), { align: "right" })
@@ -216,6 +226,7 @@ function buildLineRow(line, index, mode) {
   return [
     cell(itemNumber, { align: "center" }),
     cell(line.specification, { span: 3 }),
+    cell(formatCoilWeightRange(line.minNet, line.maxNet), { align: "right" }),
     cell(formatNumber(line.quantity, 3), { align: "right" }),
     cell(formatMoney(line.price), { align: "right" }),
     cell(formatMoney(line.amount), { align: "right" })
