@@ -1,4 +1,4 @@
-const SERVICE_BASE_URL = "https://TU-SERVICIO-RENDER.onrender.com";
+const SERVICE_BASE_URL = "https://steel-trade-invoice-service.onrender.com";
 
 const tablaContratos = base.getTable("Contratos de venta");
 const tablaItemsVenta = base.getTable("Ítems de venta");
