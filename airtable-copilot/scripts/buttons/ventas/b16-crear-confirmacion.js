@@ -41,16 +41,12 @@ await tablaContratos.updateRecordAsync(contrato.id, {
     {
       url: `${baseUrl}/${nombreBase}-confirmacion.docx?mode=${modo}&v=${marca}`,
       filename: `${nombreBase}-confirmacion.docx`
-    },
-    {
-      url: `${baseUrl}/${nombreBase}-confirmacion.xlsx?mode=${modo}&v=${marca}`,
-      filename: `${nombreBase}-confirmacion.xlsx`
     }
   ]
 });
 
 output.text(
-  `Confirmación creada en formato ${modo === "formato3" ? "3" : modo === "grouped" ? "agrupado" : "detalle"}.`
+  `Confirmación Word creada en formato ${modo === "formato3" ? "3" : modo === "grouped" ? "agrupado" : "detalle"}.`
 );
 
 async function contratoTieneChapa(itemsVenta) {

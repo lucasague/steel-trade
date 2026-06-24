@@ -1,13 +1,16 @@
 import JSZip from "jszip";
 import { readFileSync } from "node:fs";
-import { formatNumber } from "../domain/format.js";
+import { formatNumber, roundMoney } from "../domain/format.js";
 import { getConfirmationLines } from "../services/confirmation-service.js";
 
 const TEMPLATE_URL = new URL("../templates/confirmacion-pedido.docx", import.meta.url);
+const VAT_RATE = 0.21;
+const TABLE_WIDTHS = [650, 2600, 1250, 1100, 1150, 1250, 1300];
 
 export async function renderConfirmationDocx(confirmation, { mode }) {
   const zip = await JSZip.loadAsync(readFileSync(TEMPLATE_URL));
-  const replacements = buildReplacements(confirmation, mode);
+  const replacements = buildReplacements(confirmation);
+  const merchandiseTable = buildMerchandiseTableXml(confirmation, mode);
 
   await Promise.all(
     Object.keys(zip.files)
@@ -24,6 +27,9 @@ export async function renderConfirmationDocx(confirmation, { mode }) {
             text.includes(needle) ? text.split(needle).join(replacement || "") : text
           );
         }
+        if (name === "word/document.xml") {
+          xml = insertTableAfterMerchandise(xml, merchandiseTable);
+        }
         zip.file(name, xml);
       })
   );
@@ -31,10 +37,8 @@ export async function renderConfirmationDocx(confirmation, { mode }) {
   return zip.generateAsync({ type: "nodebuffer" });
 }
 
-function buildReplacements(confirmation, mode) {
+function buildReplacements(confirmation) {
   const customer = confirmation.customer;
-  const lines = getConfirmationLines(confirmation, mode);
-  const summary = summarizeLines(lines);
   const packing = confirmation.hasSheetMaterial
     ? "PACKING: Según condiciones del pedido"
     : "PACKING: Standard export packing";
@@ -45,7 +49,10 @@ function buildReplacements(confirmation, mode) {
     ["CIF CLLIENTE XXX", customer.taxId || ""],
     ["CONFIRMACIÓN DE PEDIDO: STA – 2026-XXXX", `CONFIRMACIÓN DE PEDIDO: ${confirmation.contractNumber}`],
     ["CONFIRMACIÓN DE PEDIDO: STA - 2026-XXXX", `CONFIRMACIÓN DE PEDIDO: ${confirmation.contractNumber}`],
-    ["MERCANCIA :", `MERCANCÍA: ${summary}`],
+    ["MERCANCIA :", "MERCANCÍA:"],
+    ["MERCANCIA:", "MERCANCÍA:"],
+    ["MARCANCIA :", "MERCANCÍA:"],
+    ["MARCANCIA:", "MERCANCÍA:"],
     ["ORIGEN: FABRICA Y PAÍS", "ORIGEN: Según contrato de compra"],
     [
       "CANTIDAD TOTAL: 600,000 MT (+ / - 10%)",
@@ -69,14 +76,6 @@ function buildReplacements(confirmation, mode) {
     ],
     ["TECHOS FALSTECH", customer.fiscalName || customer.commercialName || ""]
   ];
-}
-
-function summarizeLines(lines) {
-  return lines
-    .map((line) => line.specification)
-    .filter(Boolean)
-    .filter((value, index, all) => all.indexOf(value) === index)
-    .join("; ");
 }
 
 function customerAddress(customer) {
@@ -119,6 +118,196 @@ function formatDateEs(value) {
   if (!value) return "";
   const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
   return match ? `${match[3]}/${match[2]}/${match[1]}` : String(value);
+}
+
+function buildMerchandiseTableXml(confirmation, mode) {
+  const lines = getConfirmationLines(confirmation, mode);
+  const subtotal = sum(lines, "amount");
+  const vat = roundMoney(subtotal * VAT_RATE);
+  const total = roundMoney(subtotal + vat);
+  const rows = [
+    [cell(formatModeLabel(mode), { span: 7, bold: true, align: "center", shade: "D9EAF7" })],
+    buildHeaderRow(mode),
+    ...lines.map((line, index) => buildLineRow(line, index + 1, mode)),
+    [
+      cell("", { span: 4 }),
+      cell(formatNumber(sum(lines, "quantity"), 3), { align: "right", bold: true }),
+      cell(""),
+      cell(formatMoney(subtotal), { align: "right", bold: true })
+    ],
+    [
+      cell("IVA 21%", { span: 6, align: "right", bold: true }),
+      cell(formatMoney(vat), { align: "right", bold: true })
+    ],
+    [cell(formatMoney(total), { span: 7, align: "right", bold: true, shade: "EDEDED" })]
+  ];
+
+  return [
+    "<w:tbl>",
+    "<w:tblPr>",
+    '<w:tblW w:w="5000" w:type="pct"/>',
+    '<w:tblLayout w:type="fixed"/>',
+    '<w:tblCellMar><w:top w:w="45" w:type="dxa"/><w:left w:w="45" w:type="dxa"/><w:bottom w:w="45" w:type="dxa"/><w:right w:w="45" w:type="dxa"/></w:tblCellMar>',
+    "</w:tblPr>",
+    `<w:tblGrid>${TABLE_WIDTHS.map((width) => `<w:gridCol w:w="${width}"/>`).join("")}</w:tblGrid>`,
+    rows.map(rowXml).join(""),
+    "</w:tbl>"
+  ].join("");
+}
+
+function formatModeLabel(mode) {
+  if (mode === "detail") return "FORMATO 2 - DETALLADO";
+  if (mode === "formato3") return "FORMATO 3 - CHAPA AGRUPADO";
+  return "FORMATO 1 - AGRUPADO";
+}
+
+function buildHeaderRow(mode) {
+  if (mode === "detail") {
+    return [
+      cell("ITEM", { bold: true, align: "center", shade: "EDEDED" }),
+      cell("ESPECIFICACIÓN", { bold: true, align: "center", shade: "EDEDED" }),
+      cell("NÚMERO DE BOBINA", { span: 2, bold: true, align: "center", shade: "EDEDED" }),
+      cell("CANTIDAD (MT)", { bold: true, align: "center", shade: "EDEDED" }),
+      cell("PRECIO (EUR/MT)", { bold: true, align: "center", shade: "EDEDED" }),
+      cell("TOTAL EUR", { bold: true, align: "center", shade: "EDEDED" })
+    ];
+  }
+  if (mode === "formato3") {
+    return [
+      cell("ITEM", { bold: true, align: "center", shade: "EDEDED" }),
+      cell("ESPECIFICACIÓN", { span: 2, bold: true, align: "center", shade: "EDEDED" }),
+      cell("UNIDADES", { bold: true, align: "center", shade: "EDEDED" }),
+      cell("CANTIDAD (MT)", { bold: true, align: "center", shade: "EDEDED" }),
+      cell("PRECIO (EUR/MT)", { bold: true, align: "center", shade: "EDEDED" }),
+      cell("TOTAL EUR", { bold: true, align: "center", shade: "EDEDED" })
+    ];
+  }
+  return [
+    cell("ITEM", { bold: true, align: "center", shade: "EDEDED" }),
+    cell("ESPECIFICACIÓN", { span: 3, bold: true, align: "center", shade: "EDEDED" }),
+    cell("CANTIDAD (MT)", { bold: true, align: "center", shade: "EDEDED" }),
+    cell("PRECIO (EUR/MT)", { bold: true, align: "center", shade: "EDEDED" }),
+    cell("TOTAL EUR", { bold: true, align: "center", shade: "EDEDED" })
+  ];
+}
+
+function buildLineRow(line, index, mode) {
+  const itemNumber = line.itemNumber || index;
+  if (mode === "detail") {
+    return [
+      cell(itemNumber, { align: "center" }),
+      cell(line.specification),
+      cell(line.factoryId || "", { span: 2 }),
+      cell(formatNumber(line.quantity, 3), { align: "right" }),
+      cell(formatMoney(line.price), { align: "right" }),
+      cell(formatMoney(line.amount), { align: "right" })
+    ];
+  }
+  if (mode === "formato3") {
+    return [
+      cell(itemNumber, { align: "center" }),
+      cell(line.specification, { span: 2 }),
+      cell(formatUnits(line.units), { align: "right" }),
+      cell(formatNumber(line.quantity, 3), { align: "right" }),
+      cell(formatMoney(line.price), { align: "right" }),
+      cell(formatMoney(line.amount), { align: "right" })
+    ];
+  }
+  return [
+    cell(itemNumber, { align: "center" }),
+    cell(line.specification, { span: 3 }),
+    cell(formatNumber(line.quantity, 3), { align: "right" }),
+    cell(formatMoney(line.price), { align: "right" }),
+    cell(formatMoney(line.amount), { align: "right" })
+  ];
+}
+
+function cell(text, options = {}) {
+  return { text: text ?? "", span: 1, align: "left", bold: false, shade: "", ...options };
+}
+
+function rowXml(row) {
+  let columnIndex = 0;
+  const cells = row
+    .map((tableCell) => {
+      const xml = cellXml(tableCell, columnIndex);
+      columnIndex += tableCell.span;
+      return xml;
+    })
+    .join("");
+  return `<w:tr>${cells}</w:tr>`;
+}
+
+function cellXml({ text, span, align, bold, shade }, columnIndex) {
+  const width = TABLE_WIDTHS.slice(columnIndex, columnIndex + span).reduce(
+    (total, value) => total + value,
+    0
+  );
+  const props = [
+    `<w:tcW w:w="${width}" w:type="dxa"/>`,
+    span > 1 ? `<w:gridSpan w:val="${span}"/>` : "",
+    '<w:vAlign w:val="center"/>',
+    shade ? `<w:shd w:fill="${shade}"/>` : "",
+    '<w:tcBorders><w:top w:val="single" w:sz="4" w:color="808080"/><w:left w:val="single" w:sz="4" w:color="808080"/><w:bottom w:val="single" w:sz="4" w:color="808080"/><w:right w:val="single" w:sz="4" w:color="808080"/></w:tcBorders>'
+  ].join("");
+  const runProps = [
+    '<w:rFonts w:ascii="Arial" w:hAnsi="Arial"/>',
+    '<w:sz w:val="16"/>',
+    bold ? "<w:b/>" : ""
+  ].join("");
+
+  return [
+    "<w:tc>",
+    `<w:tcPr>${props}</w:tcPr>`,
+    "<w:p>",
+    `<w:pPr><w:jc w:val="${align}"/></w:pPr>`,
+    `<w:r><w:rPr>${runProps}</w:rPr><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r>`,
+    "</w:p>",
+    "</w:tc>"
+  ].join("");
+}
+
+function insertTableAfterMerchandise(xml, tableXml) {
+  let inserted = false;
+  const result = xml.replace(/<w:p[\s\S]*?<\/w:p>/g, (paragraph) => {
+    if (inserted) return paragraph;
+    const text = normalizeForMatch(paragraphText(paragraph));
+    if (!text.includes("mercancia") && !text.includes("marcancia")) return paragraph;
+    inserted = true;
+    return `${paragraph}${tableXml}`;
+  });
+  return inserted ? result : xml;
+}
+
+function paragraphText(paragraph) {
+  return [...paragraph.matchAll(/<w:t(\s[^>]*)?>([\s\S]*?)<\/w:t>/g)]
+    .map((run) => unescapeXml(run[2]))
+    .join("");
+}
+
+function normalizeForMatch(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function sum(lines, key) {
+  return roundMoney(lines.reduce((total, line) => total + (Number(line[key]) || 0), 0));
+}
+
+function formatMoney(value) {
+  return new Intl.NumberFormat("es-ES", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value || 0);
+}
+
+function formatUnits(value) {
+  if (value === undefined || value === null || value === "") return "";
+  return new Intl.NumberFormat("es-ES", {
+    maximumFractionDigits: 0
+  }).format(value);
 }
 
 function replaceTextInParagraphs(xml, replaceText) {

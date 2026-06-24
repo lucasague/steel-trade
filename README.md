@@ -7,7 +7,7 @@ Servicio Node para generar facturas comerciales de Steel Trade desde la tabla
 
 - `mode=grouped`: PDF agrupado por item de compra y ZIP con PDF + Excel de detalle.
 - `mode=detail`: PDF con lineas a nivel existencia.
-- Confirmaciones de pedido desde `Contratos de venta`: DOCX + XLSX para adjuntar en
+- Confirmaciones de pedido desde `Contratos de venta`: DOCX con tabla de mercancía insertada para adjuntar en
   `Documentos confirmación`.
 
 ## Variables necesarias
@@ -42,7 +42,6 @@ GET /api/invoices/:recordId?mode=detail
 GET /api/invoices/by-number/:invoiceNumber?mode=grouped
 GET /api/confirmations/:recordId/metadata
 GET /api/confirmations/:recordId/:filename.docx?mode=grouped
-GET /api/confirmations/:recordId/:filename.xlsx?mode=detail
 ```
 
 Formatos:
@@ -60,6 +59,9 @@ mode=grouped   formato 1 agrupado
 mode=detail    formato 2 detallado
 formato3       se fuerza automaticamente si hay Chapa o Chapa grande
 ```
+
+Las confirmaciones devuelven un único Word. La tabla de mercancía se inserta en el `.docx`
+después de `MERCANCÍA:` usando el formato de `src/templates/formatos-confirmacion.xlsx`.
 
 El script del botón está en
 `airtable-copilot/scripts/buttons/ventas/b16-crear-confirmacion.js`.

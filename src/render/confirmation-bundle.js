@@ -1,17 +1,7 @@
 import { renderConfirmationDocx } from "./confirmation-docx.js";
-import { renderConfirmationExcel } from "./confirmation-excel.js";
 
-export async function renderConfirmationResponse(confirmation, { mode, format }) {
+export async function renderConfirmationResponse(confirmation, { mode }) {
   const safeContractNumber = confirmation.contractNumber.replace(/[^\w.-]+/g, "-");
-
-  if (format === "xlsx") {
-    return {
-      filename: `${safeContractNumber}-confirmacion.xlsx`,
-      contentType:
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      buffer: await renderConfirmationExcel(confirmation, { mode })
-    };
-  }
 
   return {
     filename: `${safeContractNumber}-confirmacion.docx`,

@@ -59,10 +59,9 @@ app.get("/api/confirmations/:recordId/:filename", async (request, reply) => {
     recordId: request.params.recordId
   });
   const mode = normalizeConfirmationMode(request.query.mode, confirmation);
-  const format = normalizeConfirmationFormat(request.params.filename);
   return sendRendered(
     reply,
-    await renderConfirmationResponse(confirmation, { mode, format })
+    await renderConfirmationResponse(confirmation, { mode })
   );
 });
 
@@ -96,8 +95,4 @@ function normalizeConfirmationMode(mode, confirmation) {
   if (confirmation.hasSheetMaterial) return "formato3";
   if (mode === "detail") return "detail";
   return "grouped";
-}
-
-function normalizeConfirmationFormat(filename) {
-  return String(filename || "").toLowerCase().endsWith(".xlsx") ? "xlsx" : "docx";
 }
