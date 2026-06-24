@@ -1,0 +1,24 @@
+{
+  "name": "steel-trade-invoice-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.5.3",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "node src/server.js",
+    "start": "node src/server.js",
+    "sample": "node src/sample.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "exceljs": "^4.4.0",
+    "fastify": "^5.2.1",
+    "jszip": "^3.10.1",
+    "pdfkit": "^0.15.2"
+  },
+  "devDependencies": {}
+}

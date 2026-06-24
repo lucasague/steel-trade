@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: steel-trade-invoice-service
+    runtime: node
+    plan: free
+    buildCommand: pnpm install --frozen-lockfile
+    startCommand: node src/server.js
+    healthCheckPath: /health
+    envVars:
+      - key: AIRTABLE_TOKEN
+        sync: false
+      - key: AIRTABLE_BASE_ID
+        value: appnS0geRMpHaxib9
+      - key: AIRTABLE_FACTURAS_TABLE_ID
+        value: tblD7MvJnqpiqKMfm
+      - key: AIRTABLE_EXISTENCIAS_TABLE_ID
+        value: tblOGE7nApPr8zTsZ
+      - key: AIRTABLE_CONTRATOS_VENTA_TABLE_ID
+        value: tbly2fHo6evAFY33X
+      - key: AIRTABLE_ITEMS_VENTA_TABLE_ID
+        value: tblmx0d8G49Qx29LD
+      - key: AIRTABLE_ITEMS_COMPRA_TABLE_ID
+        value: tblVZncIvXViG3IvO
