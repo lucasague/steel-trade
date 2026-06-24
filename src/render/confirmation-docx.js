@@ -9,7 +9,7 @@ const TABLE_WIDTHS = [650, 2350, 950, 1200, 1100, 1100, 1300, 1200];
 
 export async function renderConfirmationDocx(confirmation, { mode }) {
   const zip = await JSZip.loadAsync(readFileSync(TEMPLATE_URL));
-  const replacements = buildReplacements(confirmation);
+  const replacements = buildReplacements(confirmation, { mode });
   const merchandiseTable = buildMerchandiseTableXml(confirmation, mode);
 
   await Promise.all(
@@ -29,6 +29,8 @@ export async function renderConfirmationDocx(confirmation, { mode }) {
         }
         if (name === "word/document.xml") {
           xml = insertTableAfterMerchandise(xml, merchandiseTable);
+          const showsStorageLine = confirmation.hasSheetMaterial && mode === "formato3";
+          xml = updateStorageLine(xml, showsStorageLine);
         }
         zip.file(name, xml);
       })
@@ -37,13 +39,14 @@ export async function renderConfirmationDocx(confirmation, { mode }) {
   return zip.generateAsync({ type: "nodebuffer" });
 }
 
-function buildReplacements(confirmation) {
+function buildReplacements(confirmation, { mode }) {
   const customer = confirmation.customer;
   const origin = confirmation.origin || "Según contrato de compra";
   const packing = confirmation.hasSheetMaterial
     ? "PACKING: Según condiciones del pedido"
     : "PACKING: Standard export packing";
   const showsBankDetails = isTransferPaymentTerm(confirmation.paymentTerms);
+  const showsStorageLine = confirmation.hasSheetMaterial && mode === "formato3";
 
   return [
     ["CLIENTE XXXXX", customer.fiscalName || customer.commercialName || ""],
@@ -78,6 +81,7 @@ function buildReplacements(confirmation) {
       "CAIXA BANK - ES40 2100 6428 2213 0012 3884",
       showsBankDetails ? "CAIXA BANK - ES40 2100 6428 2213 0012 3884" : ""
     ],
+    ["ALMACENAJES:", showsStorageLine ? "ALMACENAJES:" : ""],
     ["TECHOS FALSTECH", customer.fiscalName || customer.commercialName || ""]
   ];
 }
@@ -288,6 +292,17 @@ function insertTableAfterMerchandise(xml, tableXml) {
     return `${paragraph}${tableXml}`;
   });
   return inserted ? result : xml;
+}
+
+function updateStorageLine(xml, showStorageLine) {
+  return xml.replace(/<w:p[\s\S]*?<\/w:p>/g, (paragraph) => {
+    if (!normalizeForMatch(paragraphText(paragraph)).includes("almacenajes")) return paragraph;
+    if (!showStorageLine) {
+      return "";
+    }
+
+    return paragraph.replace(/<w:color w:val="EE0000"\/>/g, '<w:color w:val="000000"/>');
+  });
 }
 
 function paragraphText(paragraph) {

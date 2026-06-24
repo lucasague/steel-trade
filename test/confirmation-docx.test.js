@@ -79,6 +79,48 @@ test("adds bank details only when payment is transfer", async () => {
   assert.doesNotMatch(nonTransferXml, /CAIXA BANK - ES40 2100 6428 2213 0012 3884/);
 });
 
+test("shows storage line only for formato 3 and keeps it black", async () => {
+  const sheetBuffer = await renderConfirmationDocx(
+    {
+      ...fakeConfirmation(),
+      hasSheetMaterial: true
+    },
+    {
+      mode: "formato3"
+    }
+  );
+  const sheetDoc = await JSZip.loadAsync(sheetBuffer);
+  const sheetXml = await sheetDoc.file("word/document.xml").async("string");
+  const sheetStorageParagraph = sheetXml.match(
+    /<w:p[^>]*>[\s\S]*?ALMACENAJES:[\s\S]*?<\/w:p>/
+  );
+
+  assert.ok(sheetStorageParagraph, "ALMACENAJES line should be present in formato 3");
+  assert.doesNotMatch(
+    sheetStorageParagraph[0],
+    /w:color w:val="EE0000"/,
+    "Storage line should not keep red color in formato 3"
+  );
+  assert.match(sheetStorageParagraph[0], /w:color w:val="000000"/);
+
+  const nonSheetBuffer = await renderConfirmationDocx(
+    {
+      ...fakeConfirmation(),
+      hasSheetMaterial: false
+    },
+    {
+      mode: "formato1"
+    }
+  );
+  const nonSheetDoc = await JSZip.loadAsync(nonSheetBuffer);
+  const nonSheetXml = await nonSheetDoc.file("word/document.xml").async("string");
+
+  assert.doesNotMatch(
+    nonSheetXml,
+    /ALMACENAJES: 30 DIAS LIBRES/
+  );
+});
+
 function fakeConfirmation() {
   return {
     contractNumber: "STA-TEST",
