@@ -259,7 +259,8 @@ test("places client name in the right signature column", async () => {
 
   assert.ok(signatureTable, "The final signature block should be a table with client name");
   assert.match(signatureTable, /<w:gridCol/);
-  assert.match(signatureTable, /<w:jc w:val="center"\/>/);
+  assert.match(signatureTable, /<w:jc w:val="left"\/>/);
+  assert.match(signatureTable, /<w:jc w:val="right"\/>/);
 });
 
 test("normalizes client name in signature to avoid embedded line breaks", async () => {

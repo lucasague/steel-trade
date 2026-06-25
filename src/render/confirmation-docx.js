@@ -536,17 +536,17 @@ function buildSignatureTable({
   const rightWidth = 5233;
   const headerRunPr = headerRunProps || "";
   const bottomRunPr = bottomRunProps || "";
-  const headerCell = (text, runProps) => [
+  const headerCell = (text, runProps, align) => [
     "<w:tc>",
     `<w:tcPr><w:tcW w:w="${leftWidth}" w:type="dxa"/><w:vAlign w:val="center"/><w:noWrap/></w:tcPr>`,
-    "<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr>",
+    `<w:p><w:pPr><w:jc w:val="${align}"/></w:pPr>`,
     `<w:r><w:rPr>${runProps}</w:rPr><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r>`,
     "</w:p></w:tc>"
   ].join("");
-  const bottomCell = (text, runProps) => [
+  const bottomCell = (text, runProps, align) => [
     "<w:tc>",
     `<w:tcPr><w:tcW w:w="${rightWidth}" w:type="dxa"/><w:vAlign w:val="center"/><w:noWrap/></w:tcPr>`,
-    "<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr>",
+    `<w:p><w:pPr><w:jc w:val="${align}"/></w:pPr>`,
     `<w:r><w:rPr>${runProps}</w:rPr><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r>`,
     "</w:p></w:tc>"
   ].join("");
@@ -558,8 +558,8 @@ function buildSignatureTable({
     "<w:tblLayout w:type=\"fixed\"/>",
     "</w:tblPr>",
     `<w:tblGrid><w:gridCol w:w="${leftWidth}"/><w:gridCol w:w="${rightWidth}"/></w:tblGrid>`,
-    `<w:tr>${headerCell(headerText, headerRunPr)}${headerCell(headerText, headerRunPr)}</w:tr>`,
-    `<w:tr>${bottomCell(leftBottomText, bottomRunPr)}${bottomCell(rightBottomText, bottomRunPr)}</w:tr>`,
+    `<w:tr>${headerCell(headerText, headerRunPr, "left")}${headerCell(headerText, headerRunPr, "right")}</w:tr>`,
+    `<w:tr>${bottomCell(leftBottomText, bottomRunPr, "left")}${bottomCell(rightBottomText, bottomRunPr, "right")}</w:tr>`,
     "</w:tbl>"
   ].join("");
 }
