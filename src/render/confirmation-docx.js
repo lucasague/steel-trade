@@ -180,7 +180,7 @@ function buildHeaderRow(mode) {
   return [
     cell("ITEM", { bold: true, align: "center", shade: "EDEDED" }),
     cell("ESPECIFICACIÓN", { span: 3, bold: true, align: "center", shade: "EDEDED" }),
-    cell("PESO BOBINA (MT)", { bold: true, align: "center", shade: "EDEDED" }),
+    cell("RANGO (MT)", { bold: true, align: "center", shade: "EDEDED" }),
     cell("CANTIDAD (MT)", { bold: true, align: "center", shade: "EDEDED" }),
     cell("PRECIO (EUR/MT)", { bold: true, align: "center", shade: "EDEDED" }),
     cell("TOTAL EUR", { bold: true, align: "center", shade: "EDEDED" })

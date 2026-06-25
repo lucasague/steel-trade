@@ -26,7 +26,8 @@ test("shows coil weight range only in grouped format", async () => {
   const groupedDoc = await JSZip.loadAsync(groupedBuffer);
   const groupedXml = await groupedDoc.file("word/document.xml").async("string");
 
-  assert.match(groupedXml, /PESO BOBINA \(MT\)/);
+  assert.match(groupedXml, /RANGO \(MT\)/);
+  assert.doesNotMatch(groupedXml, /PESO BOBINA \(MT\)/);
   assert.match(groupedXml, /10,000 - 15,000 MT/);
 
   const detailBuffer = await renderConfirmationDocx(fakeConfirmation(), {
