@@ -161,8 +161,8 @@ test("keeps body paragraph spacing tight with a blank line after long paragraphs
   );
 
   assert.ok(introParagraph, "The introduction sentence should be present");
-  assert.match(introParagraph, /<w:sz w:val="21"\/>/);
-  assert.match(introParagraph, /<w:szCs w:val="21"\/>/);
+  assert.match(introParagraph, /<w:sz w:val="19"\/>/);
+  assert.match(introParagraph, /<w:szCs w:val="19"\/>/);
   assert.ok(reclamacionesParagraph, "The reclamaciones paragraph should be present");
   assert.match(
     reclamacionesParagraph,

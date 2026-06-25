@@ -439,7 +439,7 @@ function shrinkIntroParagraph(xml) {
     if (!text.includes("le agradecemos su pedido") || !text.includes("material")) {
       return paragraph;
     }
-    return setParagraphFontSize(paragraph, 21);
+    return setParagraphFontSize(paragraph, 19);
   });
 }
 
