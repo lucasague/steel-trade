@@ -75,6 +75,46 @@ test("formats quantities and money with thousands separators", async () => {
   assert.match(documentXml, /148\.148,14/);
 });
 
+test("keeps long customer header name in one right-aligned cell", async () => {
+  const customerName = "Arcelormital Distribuci\u00f3n, S.L.";
+  const buffer = await renderConfirmationDocx(
+    {
+      ...fakeConfirmation(),
+      customer: {
+        ...fakeConfirmation().customer,
+        fiscalName: customerName,
+        address: "P.I. Silvota, C/ Pe\u00f1a Ten Parcela 13",
+        postalCode: "33690",
+        city: "Llanera",
+        province: "Asturias",
+        country: "Espa\u00f1a",
+        taxId: "B83481002"
+      }
+    },
+    {
+      mode: "detail"
+    }
+  );
+  const zip = await JSZip.loadAsync(buffer);
+  const documentXml = await zip.file("word/document.xml").async("string");
+  const paragraphs = [...documentXml.matchAll(/<w:p[\s\S]*?<\/w:p>/g)].map((match) => match[0]);
+  const logoParagraph = paragraphs.find((paragraph) => paragraph.includes("<w:drawing"));
+  const tables = [...documentXml.matchAll(/<w:tbl>[\s\S]*?<\/w:tbl>/g)].map((match) => match[0]);
+  const headerTable = tables.find((table) => extractParagraphText(table).includes(customerName));
+
+  assert.ok(headerTable, "The customer name should be rendered in the header table");
+  assert.ok(logoParagraph, "The header should keep the STA logo");
+  const nameParagraphs = [...headerTable.matchAll(/<w:p[\s\S]*?<\/w:p>/g)]
+    .map((match) => match[0])
+    .filter((paragraph) => extractParagraphText(paragraph).includes(customerName));
+
+  assert.equal(logoParagraph.includes(customerName), false);
+  assert.equal(nameParagraphs.length, 1);
+  assert.equal(extractParagraphText(nameParagraphs[0]), customerName);
+  assert.match(headerTable, /<w:noWrap\/>/);
+  assert.match(nameParagraphs[0], /<w:jc w:val="right"\/>/);
+});
+
 test("replaces merchandise header and origin line", async () => {
   const buffer = await renderConfirmationDocx(
     {

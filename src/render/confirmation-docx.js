@@ -37,6 +37,7 @@ export async function renderConfirmationDocx(confirmation, { mode }) {
           );
         }
         if (name === "word/document.xml") {
+          xml = replaceCustomerHeaderBlock(xml, confirmation);
           xml = insertTableAfterMerchandise(xml, merchandiseTable);
           const showsStorageLine = mode === "formato3";
           if (hasMultipleOrigins) {
@@ -413,6 +414,96 @@ function insertTableAfterMerchandise(xml, tableXml) {
     return `${paragraph}${tableXml}`;
   });
   return inserted ? result : xml;
+}
+
+function replaceCustomerHeaderBlock(xml, confirmation) {
+  const customer = confirmation.customer || {};
+  const customerName = sanitizeSingleLineText(customer.fiscalName || customer.commercialName || "");
+  const customerAddressText = sanitizeSignatureName(customerAddress(customer));
+  const customerTaxId = sanitizeSignatureName(customer.taxId || "");
+  const confirmationDate = formatDateEs(confirmation.date);
+  const paragraphMatches = [...xml.matchAll(/<w:p[\s\S]*?<\/w:p>/g)];
+  const logoParagraphIndex = paragraphMatches.findIndex((match, index) => {
+    if (index > 8) return false;
+    return match[0].includes("<w:drawing");
+  });
+  if (logoParagraphIndex < 0) return xml;
+
+  const logoParagraph = paragraphMatches[logoParagraphIndex][0];
+  const logoRun = logoParagraph.match(/<w:r(?:\s[^>]*)?>[\s\S]*?<w:drawing>[\s\S]*?<\/w:drawing>[\s\S]*?<\/w:r>/)?.[0];
+  if (!logoRun) return xml;
+
+  const dateParagraphIndex = paragraphMatches.findIndex((match, index) => {
+    if (index <= logoParagraphIndex || index > logoParagraphIndex + 6) return false;
+    return paragraphText(match[0]).includes(confirmationDate);
+  });
+  const lastHeaderParagraphIndex = dateParagraphIndex > -1
+    ? dateParagraphIndex
+    : Math.min(logoParagraphIndex + 3, paragraphMatches.length - 1);
+  const start = paragraphMatches[logoParagraphIndex].index;
+  const endMatch = paragraphMatches[lastHeaderParagraphIndex];
+  if (start === undefined || endMatch.index === undefined) return xml;
+
+  const customerHeaderTable = buildCustomerHeaderTable({
+    logoRun,
+    customerName,
+    customerAddressText,
+    customerTaxId,
+    confirmationDate
+  });
+  const end = endMatch.index + endMatch[0].length;
+  return `${xml.slice(0, start)}${customerHeaderTable}${xml.slice(end)}`;
+}
+
+function buildCustomerHeaderTable({
+  logoRun,
+  customerName,
+  customerAddressText,
+  customerTaxId,
+  confirmationDate
+}) {
+  const tableWidth = 10466;
+  const leftWidth = 6320;
+  const rightWidth = tableWidth - leftWidth;
+  const cellProps = (width, extraProps = "") =>
+    `<w:tcPr><w:tcW w:w="${width}" w:type="dxa"/><w:vAlign w:val="top"/>${extraProps}</w:tcPr>`;
+  const textParagraph = (text, { bold = false, size = 20 } = {}) => [
+    '<w:p><w:pPr><w:spacing w:after="0"/><w:jc w:val="right"/></w:pPr>',
+    "<w:r>",
+    `<w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>${bold ? "<w:b/><w:bCs/>" : ""}<w:sz w:val="${size}"/><w:szCs w:val="${size}"/></w:rPr>`,
+    `<w:t xml:space="preserve">${escapeXml(text)}</w:t>`,
+    "</w:r>",
+    "</w:p>"
+  ].join("");
+  const rightParagraphs = [
+    textParagraph(customerName, { bold: true, size: headerNameFontSize(customerName) }),
+    textParagraph(customerAddressText),
+    textParagraph(customerTaxId),
+    textParagraph(confirmationDate)
+  ].join("");
+
+  return [
+    "<w:tbl>",
+    "<w:tblPr>",
+    `<w:tblW w:w="${tableWidth}" w:type="dxa"/>`,
+    '<w:tblLayout w:type="fixed"/>',
+    '<w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="0" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="0" w:type="dxa"/></w:tblCellMar>',
+    '<w:tblBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="nil"/></w:tblBorders>',
+    "</w:tblPr>",
+    `<w:tblGrid><w:gridCol w:w="${leftWidth}"/><w:gridCol w:w="${rightWidth}"/></w:tblGrid>`,
+    "<w:tr>",
+    `<w:tc>${cellProps(leftWidth)}<w:p><w:pPr><w:spacing w:after="0"/><w:jc w:val="left"/></w:pPr>${logoRun}</w:p></w:tc>`,
+    `<w:tc>${cellProps(rightWidth, "<w:noWrap/>")}${rightParagraphs}</w:tc>`,
+    "</w:tr>",
+    "</w:tbl>"
+  ].join("");
+}
+
+function headerNameFontSize(value) {
+  const length = String(value || "").length;
+  if (length > 45) return 18;
+  if (length > 34) return 20;
+  return 22;
 }
 
 function updateStorageLine(xml, showStorageLine) {
