@@ -264,6 +264,35 @@ test("places client name in the right signature column", async () => {
   );
 });
 
+test("normalizes client name in signature to avoid embedded line breaks", async () => {
+  const signatureName = "ACME\nGLOBAL SL";
+  const buffer = await renderConfirmationDocx(
+    {
+      ...fakeConfirmation(),
+      customer: {
+        ...fakeConfirmation().customer,
+        fiscalName: signatureName
+      }
+    },
+    {
+      mode: "formato1"
+    }
+  );
+  const doc = await JSZip.loadAsync(buffer);
+  const documentXml = await doc.file("word/document.xml").async("string");
+  const paragraphs = [...documentXml.matchAll(/<w:p[\s\S]*?<\/w:p>/g)].map((match) => match[0]);
+  const signatureParagraph = paragraphs.find(
+    (paragraph) =>
+      /STEEL TRADE ADVISORS, S\.L\.U\./.test(paragraph) &&
+      /ACME GLOBAL SL/.test(paragraph)
+  );
+  assert.ok(signatureParagraph);
+
+  const signatureText = extractParagraphText(signatureParagraph);
+  assert.equal(signatureText.includes(signatureName), false);
+  assert.equal(signatureText.includes("ACME GLOBAL SL"), true);
+});
+
 test("shows storage line only for formato 3 and keeps it black", async () => {
   const sheetBuffer = await renderConfirmationDocx(
     {
@@ -386,4 +415,19 @@ function fakeConfirmation() {
       }
     ]
   };
+}
+
+function extractParagraphText(paragraph) {
+  return [...paragraph.matchAll(/<w:t(\s[^>]*)?>([\s\S]*?)<\/w:t>/g)]
+    .map((run) => unescapeXml(run[2]))
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function unescapeXml(value) {
+  return String(value || "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
 }

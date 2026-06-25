@@ -16,9 +16,11 @@ export async function renderConfirmationDocx(confirmation, { mode }) {
   const origin = getSingleOrigin(confirmation);
   const replacements = buildReplacements(confirmation, { mode, hasMultipleOrigins });
   const merchandiseTable = buildMerchandiseTableXml(confirmation, mode, hasMultipleOrigins);
-  const clientName = confirmation.customer
-    ? confirmation.customer.fiscalName || confirmation.customer.commercialName || ""
-    : "";
+  const clientName = sanitizeSignatureName(
+    confirmation.customer
+      ? confirmation.customer.fiscalName || confirmation.customer.commercialName || ""
+      : ""
+  );
   await Promise.all(
     Object.keys(zip.files)
       .filter((name) => /^word\/.*\.xml$/.test(name))
@@ -114,8 +116,15 @@ function customerAddress(customer) {
     customer.province,
     customer.country
   ]
-    .filter(Boolean)
-    .join(", ");
+  .filter(Boolean)
+  .join(", ");
+}
+
+function sanitizeSignatureName(value) {
+  return String(value || "")
+    .replace(/\r\n|\r|\n/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function formatTolerance(confirmation) {
