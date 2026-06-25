@@ -105,6 +105,7 @@ test("keeps long customer header name in one right-aligned cell", async () => {
 
   assert.ok(headerTable, "The customer name should be rendered in the header table");
   assert.ok(logoParagraph, "The header should keep the STA logo");
+  assert.match(logoParagraph, /<w:ind w:left="-432"\/>/);
   const nameParagraphs = [...headerTable.matchAll(/<w:p[\s\S]*?<\/w:p>/g)]
     .map((match) => match[0])
     .filter((paragraph) => extractParagraphText(paragraph).includes(customerName));

@@ -7,6 +7,7 @@ const TEMPLATE_URL = new URL("../templates/confirmacion-pedido.docx", import.met
 const VAT_RATE = 0.21;
 const TABLE_WIDTHS = [650, 2350, 950, 1200, 1100, 1100, 1300, 1200];
 const SHEET_TABLE_WIDTHS = TABLE_WIDTHS.slice(0, 7);
+const STA_HEADER_LEFT_MARGIN_REDUCTION_DXA = 432;
 const RECLAMACIONES_TEXT =
   "RECLAMACIONES: Si se encuentran daños en las condiciones de los bienes, o hay alguna disputa sobre calidad/cantidad/peso, se debe enviar un reclamo, incluyendo fotografías, informe de inspección, descripción detallada del reclamo o problema, al vendedor después de la entrega con un máximo de 30 días después de la llegada de los Bienes a las instalaciones del cliente para defectos visibles y con un plazo de 45 para el resto de los defectos. Cualquier reclamo debe enviarse al vendedor por correo electrónico a al menos la siguiente dirección de correo electrónico: rfernandez@steeltradeadvisors.com.";
 
@@ -691,7 +692,7 @@ function buildCustomerHeaderTable({
     "</w:tblPr>",
     `<w:tblGrid><w:gridCol w:w="${leftWidth}"/><w:gridCol w:w="${rightWidth}"/></w:tblGrid>`,
     "<w:tr>",
-    `<w:tc>${cellProps(leftWidth)}<w:p><w:pPr><w:spacing w:after="0"/><w:jc w:val="left"/></w:pPr>${logoRun}</w:p></w:tc>`,
+    `<w:tc>${cellProps(leftWidth)}<w:p><w:pPr><w:spacing w:after="0"/><w:ind w:left="-${STA_HEADER_LEFT_MARGIN_REDUCTION_DXA}"/><w:jc w:val="left"/></w:pPr>${logoRun}</w:p></w:tc>`,
     `<w:tc>${cellProps(rightWidth, "<w:noWrap/>")}${rightParagraphs}</w:tc>`,
     "</w:tr>",
     "</w:tbl>"
