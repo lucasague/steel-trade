@@ -14,9 +14,11 @@ const LABEL_VALUE_PREFIXES = [
   "condiciones de entrega",
   "condiciones de pago",
   "almacenajes",
+  "detalles bancarios",
   "reclamaciones",
   "fuerza mayor"
 ];
+const BANK_DETAILS_TEXT = "DETALLES BANCARIOS: CAIXA BANK - ES40 2100 6428 2213 0012 3884";
 const RECLAMACIONES_TEXT =
   "RECLAMACIONES: Si se encuentran daños en las condiciones de los bienes, o hay alguna disputa sobre calidad/cantidad/peso, se debe enviar un reclamo, incluyendo fotografías, informe de inspección, descripción detallada del reclamo o problema, al vendedor después de la entrega con un máximo de 30 días después de la llegada de los Bienes a las instalaciones del cliente para defectos visibles y con un plazo de 45 para el resto de los defectos. Cualquier reclamo debe enviarse al vendedor por correo electrónico a al menos la siguiente dirección de correo electrónico: rfernandez@steeltradeadvisors.com.";
 
@@ -962,39 +964,42 @@ function removeBankDetails(xml, showBankDetails) {
   const paragraphRe = /<w:p[\s\S]*?<\/w:p>/g;
   let result = "";
   let lastIndex = 0;
-  let previousParagraphText = "";
+  let pendingBankHeaderParagraph = "";
 
   let match = paragraphRe.exec(xml);
   while (match) {
     result += xml.slice(lastIndex, match.index);
     const paragraph = match[0];
     const paragraphTextNormalized = normalizeForMatch(paragraphText(paragraph));
-    const normalized = isTransferOnlyBankHeader(paragraphTextNormalized)
-      ? "detalles bancarios:"
-      : paragraphTextNormalized;
 
-    let updatedParagraph = isTransferOnlyBankHeader(paragraphTextNormalized)
-      ? replaceParagraphText(paragraph, "DETALLES BANCARIOS:")
-      : paragraph;
-
-    if (isCaixaBankLine(paragraphTextNormalized)) {
-      const hasDetailsHeader = previousParagraphText.includes("detalles bancarios");
-      if (!hasDetailsHeader) {
-        result += replaceParagraphText(paragraph, "DETALLES BANCARIOS:");
-        result += paragraph;
-        previousParagraphText = normalizeForMatch(paragraphText(paragraph));
-        lastIndex = match.index + match[0].length;
-        match = paragraphRe.exec(xml);
-        continue;
-      }
+    if (isBankDetailsHeaderOnly(paragraphTextNormalized)) {
+      pendingBankHeaderParagraph = paragraph;
+      lastIndex = match.index + match[0].length;
+      match = paragraphRe.exec(xml);
+      continue;
     }
 
-    result += updatedParagraph;
-    previousParagraphText = normalized;
+    if (isCaixaBankLine(paragraphTextNormalized)) {
+      result += replaceParagraphText(pendingBankHeaderParagraph || paragraph, BANK_DETAILS_TEXT);
+      pendingBankHeaderParagraph = "";
+      lastIndex = match.index + match[0].length;
+      match = paragraphRe.exec(xml);
+      continue;
+    }
+
+    if (pendingBankHeaderParagraph) {
+      result += replaceParagraphText(pendingBankHeaderParagraph, BANK_DETAILS_TEXT);
+      pendingBankHeaderParagraph = "";
+    }
+
+    result += paragraph;
     lastIndex = match.index + match[0].length;
     match = paragraphRe.exec(xml);
   }
 
+  if (pendingBankHeaderParagraph) {
+    result += replaceParagraphText(pendingBankHeaderParagraph, BANK_DETAILS_TEXT);
+  }
   result += xml.slice(lastIndex);
   return result;
 }
@@ -1013,6 +1018,22 @@ function isTransferOnlyBankHeader(text) {
   return (
     normalizedText.includes("cuando el pago es por transferencia") &&
     !normalizedText.includes("caixa bank")
+  );
+}
+
+function isBankDetailsHeaderOnly(text) {
+  const normalizedText = String(text || "")
+    .toLowerCase()
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return (
+    !normalizedText.includes("caixa bank") &&
+    (
+      isTransferOnlyBankHeader(normalizedText) ||
+      normalizedText.includes("detalles bancarios")
+    )
   );
 }
 
