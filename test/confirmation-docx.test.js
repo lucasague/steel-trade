@@ -263,7 +263,7 @@ test("places client name in the right signature column", async () => {
 });
 
 test("normalizes client name in signature to avoid embedded line breaks", async () => {
-  const signatureName = "ACME\nGLOBAL SL";
+  const signatureName = "ACME\r\nGLOBAL\u2028S.A.";
   const buffer = await renderConfirmationDocx(
     {
       ...fakeConfirmation(),
@@ -282,13 +282,14 @@ test("normalizes client name in signature to avoid embedded line breaks", async 
   const signatureTable = tables.find(
     (table) =>
       /STEEL TRADE ADVISORS, S\.L\.U\./.test(table) &&
-      /ACME GLOBAL SL/.test(table)
+      /ACME GLOBAL S\.A\./.test(table)
   );
   assert.ok(signatureTable, "The signature table should include normalized client name");
 
   const signatureText = extractParagraphText(signatureTable);
   assert.equal(signatureText.includes(signatureName), false);
-  assert.equal(signatureText.includes("ACME GLOBAL SL"), true);
+  assert.equal(signatureText.includes("ACME GLOBAL S.A."), true);
+  assert.match(signatureTable, /<w:noWrap\/>/);
 });
 
 test("shows storage line only for formato 3 and keeps it black", async () => {

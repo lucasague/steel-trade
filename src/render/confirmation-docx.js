@@ -63,10 +63,15 @@ function buildReplacements(confirmation, { mode, hasMultipleOrigins = false }) {
   const originLine = hasMultipleOrigins ? "" : `ORIGEN: ${origin}`;
   const showsBankDetails = isTransferPaymentTerm(confirmation.paymentTerms);
   const customerMunicipality = customer?.city || "";
+  const signatureName = sanitizeSingleLineText(
+    customer?.fiscalName || customer?.commercialName || ""
+  );
+  const customerAddressText = sanitizeSingleLineText(customerAddress(customer));
+  const customerTaxId = sanitizeSingleLineText(customer?.taxId || "");
   return [
-    ["CLIENTE XXXXX", customer.fiscalName || customer.commercialName || ""],
-    ["DIRECCI\u00d3N CLIENTE XXXX", customerAddress(customer)],
-    ["CIF CLLIENTE XXX", customer.taxId || ""],
+    ["CLIENTE XXXXX", signatureName],
+    ["DIRECCI\u00d3N CLIENTE XXXX", customerAddressText],
+    ["CIF CLLIENTE XXX", customerTaxId],
     ["CONFIRMACI\u00d3N DE PEDIDO: STA \u2013 2026-XXXX", `CONFIRMACI\u00d3N DE PEDIDO: ${confirmation.contractNumber}`],
     ["CONFIRMACI\u00d3N DE PEDIDO: STA - 2026-XXXX", `CONFIRMACI\u00d3N DE PEDIDO: ${confirmation.contractNumber}`],
     ["MERCANCIA :", "MERCANC\u00cdA"],
@@ -94,7 +99,7 @@ function buildReplacements(confirmation, { mode, hasMultipleOrigins = false }) {
     "CAIXA BANK - ES40 2100 6428 2213 0012 3884",
     showsBankDetails ? "CAIXA BANK - ES40 2100 6428 2213 0012 3884" : ""
   ],
-    ["TECHOS FALSTECH", customer.fiscalName || customer.commercialName || ""]
+    ["TECHOS FALSTECH", signatureName]
   ];
 }
 
@@ -122,9 +127,15 @@ function customerAddress(customer) {
 
 function sanitizeSignatureName(value) {
   return String(value || "")
-    .replace(/\r\n|\r|\n/g, " ")
+    .replace(/[\r\n\t\v\f\x85\u000B\u000C\u2028\u2029]+/g, " ")
+    .replace(/\u00A0/g, " ")
+    .replace(/[\u1680\u2000-\u200A\u202F\u205F\u3000]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function sanitizeSingleLineText(value) {
+  return sanitizeSignatureName(value).replace(/ /g, "\u00A0");
 }
 
 function formatTolerance(confirmation) {
@@ -527,14 +538,14 @@ function buildSignatureTable({
   const bottomRunPr = bottomRunProps || "";
   const headerCell = (text, runProps) => [
     "<w:tc>",
-    `<w:tcPr><w:tcW w:w="${leftWidth}" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>`,
+    `<w:tcPr><w:tcW w:w="${leftWidth}" w:type="dxa"/><w:vAlign w:val="center"/><w:noWrap/></w:tcPr>`,
     "<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr>",
     `<w:r><w:rPr>${runProps}</w:rPr><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r>`,
     "</w:p></w:tc>"
   ].join("");
   const bottomCell = (text, runProps) => [
     "<w:tc>",
-    `<w:tcPr><w:tcW w:w="${rightWidth}" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>`,
+    `<w:tcPr><w:tcW w:w="${rightWidth}" w:type="dxa"/><w:vAlign w:val="center"/><w:noWrap/></w:tcPr>`,
     "<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr>",
     `<w:r><w:rPr>${runProps}</w:rPr><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r>`,
     "</w:p></w:tc>"
