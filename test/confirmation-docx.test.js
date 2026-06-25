@@ -72,8 +72,9 @@ test("formats quantities and money with thousands separators", async () => {
   );
   const zip = await JSZip.loadAsync(buffer);
   const documentXml = await zip.file("word/document.xml").async("string");
+  const text = extractDocumentText(documentXml);
 
-  assert.match(documentXml, /CANTIDAD TOTAL: 12\.345,678 MT/);
+  assert.match(text, /CANTIDAD TOTAL: 12\.345,678 MT/);
   assert.match(documentXml, /12\.000,00/);
   assert.match(documentXml, /148\.148,14/);
 });
@@ -175,8 +176,9 @@ test("replaces merchandise header and origin line", async () => {
     documentXml,
     /SIGUIENTE MATERIAL:[\s\S]*<w:spacing w:before="0" w:after="0" w:line="120" w:lineRule="exact"\/>[\s\S]*<w:tbl>/
   );
-  assert.match(documentXml, /ORIGEN: Planta Madrid \(ES \/ FR\)/);
-    assert.match(documentXml, /CONDICIONES DE ENTREGA: DDP - Delivered Duty Paid Madrid/);
+  const text = extractDocumentText(documentXml);
+  assert.match(text, /ORIGEN: Planta Madrid \(ES \/ FR\)/);
+  assert.match(text, /CONDICIONES DE ENTREGA: DDP - Delivered Duty Paid Madrid/);
 });
 
 test("keeps body paragraph spacing tight with a blank line after long paragraphs", async () => {
@@ -199,6 +201,27 @@ test("keeps body paragraph spacing tight with a blank line after long paragraphs
     reclamacionesParagraph,
     /<w:spacing w:before="0" w:after="240" w:line="240" w:lineRule="auto"\/>/
   );
+});
+
+test("keeps only labels bold in colon-separated paragraphs", async () => {
+  const buffer = await renderConfirmationDocx(
+    {
+      ...fakeConfirmation(),
+      origin: "Planta Madrid (ES / FR)",
+      totalQuantity: 12345.678,
+      paymentTerms: "Carta de crédito a 30 días fecha factura"
+    },
+    { mode: "formato1" }
+  );
+  const zip = await JSZip.loadAsync(buffer);
+  const documentXml = await zip.file("word/document.xml").async("string");
+
+  assertOnlyLabelBold(documentXml, "ORIGEN:", "Planta Madrid (ES / FR)");
+  assertOnlyLabelBold(documentXml, "CANTIDAD TOTAL:", "12.345,678 MT");
+  assertOnlyLabelBold(documentXml, "CONDICIONES DE ENTREGA:", "CPT Madrid");
+  assertOnlyLabelBold(documentXml, "CONDICIONES DE PAGO:", "Carta de crédito a 30 días fecha factura");
+  assertOnlyLabelBold(documentXml, "ALMACENAJES:", "30 DÍAS LIBRES");
+  assertOnlyLabelBold(documentXml, "RECLAMACIONES:", "Si se encuentran daños");
 });
 
 test("uses origin column when multiple origins are present", async () => {
@@ -299,7 +322,10 @@ test("uses final reclamaciones text", async () => {
   const doc = await JSZip.loadAsync(buffer);
   const documentXml = await doc.file("word/document.xml").async("string");
 
-  assert.match(documentXml, /RECLAMACIONES: Si se encuentran da\u00f1os en las condiciones de los bienes[\s\S]*rfernandez@steeltradeadvisors\.com\./);
+  assert.match(
+    extractDocumentText(documentXml),
+    /RECLAMACIONES: Si se encuentran da\u00f1os en las condiciones de los bienes[\s\S]*rfernandez@steeltradeadvisors\.com\./
+  );
 });
 
 test("removes any packing line in all formats", async () => {
@@ -484,6 +510,37 @@ function storageParagraph(documentXml) {
   return [...documentXml.matchAll(/<w:p[\s\S]*?<\/w:p>/g)]
     .map((match) => match[0])
     .find((paragraph) => extractParagraphText(paragraph).startsWith("ALMACENAJES:"));
+}
+
+function extractDocumentText(documentXml) {
+  return [...documentXml.matchAll(/<w:p[\s\S]*?<\/w:p>/g)]
+    .map((match) => extractParagraphText(match[0]))
+    .filter(Boolean)
+    .join("\n");
+}
+
+function assertOnlyLabelBold(documentXml, label, valueStart) {
+  const paragraph = [...documentXml.matchAll(/<w:p[\s\S]*?<\/w:p>/g)]
+    .map((match) => match[0])
+    .find((candidate) => extractParagraphText(candidate).startsWith(label));
+  assert.ok(paragraph, `${label} paragraph should exist`);
+
+  const runs = textRuns(paragraph);
+  const labelRun = runs.find((run) => run.text === label);
+  const valueRun = runs.find((run) => run.text.trim().startsWith(valueStart));
+
+  assert.ok(labelRun, `${label} should be in its own run`);
+  assert.ok(valueRun, `${label} value should be in its own run`);
+  assert.match(labelRun.xml, /<w:b\/>/);
+  assert.doesNotMatch(valueRun.xml, /<w:b\b/);
+  assert.doesNotMatch(valueRun.xml, /<w:bCs\b/);
+}
+
+function textRuns(paragraph) {
+  return [...paragraph.matchAll(/<w:r(?:\s[^>]*)?>[\s\S]*?<\/w:r>/g)].map((match) => ({
+    xml: match[0],
+    text: extractParagraphText(match[0])
+  }));
 }
 
 function unescapeXml(value) {

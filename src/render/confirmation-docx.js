@@ -8,6 +8,15 @@ const VAT_RATE = 0.21;
 const TABLE_WIDTHS = [650, 2350, 950, 1200, 1100, 1100, 1300, 1200];
 const SHEET_TABLE_WIDTHS = TABLE_WIDTHS.slice(0, 7);
 const STA_HEADER_LEFT_MARGIN_REDUCTION_DXA = 432;
+const LABEL_VALUE_PREFIXES = [
+  "origen",
+  "cantidad total",
+  "condiciones de entrega",
+  "condiciones de pago",
+  "almacenajes",
+  "reclamaciones",
+  "fuerza mayor"
+];
 const RECLAMACIONES_TEXT =
   "RECLAMACIONES: Si se encuentran daños en las condiciones de los bienes, o hay alguna disputa sobre calidad/cantidad/peso, se debe enviar un reclamo, incluyendo fotografías, informe de inspección, descripción detallada del reclamo o problema, al vendedor después de la entrega con un máximo de 30 días después de la llegada de los Bienes a las instalaciones del cliente para defectos visibles y con un plazo de 45 para el resto de los defectos. Cualquier reclamo debe enviarse al vendedor por correo electrónico a al menos la siguiente dirección de correo electrónico: rfernandez@steeltradeadvisors.com.";
 
@@ -473,10 +482,75 @@ function applyDocumentLayoutRules(xml) {
   return normalizeConfirmationTitleSpacing(
     collapseConsecutiveBlankParagraphs(
       normalizeLongParagraphSpacing(
-        shrinkIntroParagraph(xml)
+        normalizeLabelValueBold(
+          shrinkIntroParagraph(xml)
+        )
       )
     )
   );
+}
+
+function normalizeLabelValueBold(xml) {
+  return xml.replace(/<w:p[\s\S]*?<\/w:p>/g, (paragraph) => {
+    if (paragraph.includes("<w:drawing")) return paragraph;
+    const text = paragraphText(paragraph).replace(/\s+/g, " ").trim();
+    const colonIndex = text.indexOf(":");
+    if (colonIndex < 0 || colonIndex === text.length - 1) return paragraph;
+
+    const label = text.slice(0, colonIndex + 1);
+    const value = text.slice(colonIndex + 1).replace(/^\s*/, " ");
+    if (!shouldSplitLabelValueBold(label)) return paragraph;
+
+    return replaceParagraphRuns(paragraph, [
+      { text: label, bold: true },
+      { text: value, bold: false }
+    ]);
+  });
+}
+
+function shouldSplitLabelValueBold(label) {
+  const normalizedLabel = normalizeForMatch(label)
+    .replace(/\s*:\s*$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return LABEL_VALUE_PREFIXES.includes(normalizedLabel);
+}
+
+function replaceParagraphRuns(paragraph, runs) {
+  const runMatches = [...paragraph.matchAll(/<w:r(?:\s[^>]*)?>[\s\S]*?<\/w:r>/g)];
+  if (!runMatches.length) return paragraph;
+
+  const firstRunXml = runMatches[0][0];
+  const baseRunProps = firstRunXml.match(/<w:rPr>([\s\S]*?)<\/w:rPr>/)?.[1] || "";
+  const plainRunProps = removeBoldFromRunProps(baseRunProps);
+  const replacementRuns = runs
+    .map(({ text, bold }) => buildTextRun(text, bold ? addBoldToRunProps(plainRunProps) : plainRunProps))
+    .join("");
+  const start = runMatches[0].index;
+  const lastRun = runMatches.at(-1);
+  if (start === undefined || lastRun.index === undefined) return paragraph;
+  const end = lastRun.index + lastRun[0].length;
+
+  return `${paragraph.slice(0, start)}${replacementRuns}${paragraph.slice(end)}`;
+}
+
+function buildTextRun(text, runProps) {
+  return [
+    "<w:r>",
+    runProps ? `<w:rPr>${runProps}</w:rPr>` : "",
+    `<w:t xml:space="preserve">${escapeXml(text)}</w:t>`,
+    "</w:r>"
+  ].join("");
+}
+
+function removeBoldFromRunProps(runProps) {
+  return String(runProps || "")
+    .replace(/<w:b\b[^>]*\/>/g, "")
+    .replace(/<w:bCs\b[^>]*\/>/g, "");
+}
+
+function addBoldToRunProps(runProps) {
+  return `${removeBoldFromRunProps(runProps)}<w:b/><w:bCs/>`;
 }
 
 function normalizeConfirmationTitleSpacing(xml) {
