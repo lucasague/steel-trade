@@ -9,12 +9,13 @@ test("inserts the merchandise table inside the confirmation Word", async () => {
   });
   const zip = await JSZip.loadAsync(buffer);
   const documentXml = await zip.file("word/document.xml").async("string");
-  const merchandiseIndex = documentXml.indexOf("MERCANC");
-  const tableIndex = documentXml.indexOf("<w:tbl>", merchandiseIndex);
+  const materialIndex = documentXml.indexOf("SIGUIENTE MATERIAL:");
+  const tableIndex = documentXml.indexOf("<w:tbl>", materialIndex);
 
-  assert.ok(merchandiseIndex > -1);
-  assert.ok(tableIndex > merchandiseIndex);
+  assert.ok(materialIndex > -1);
+  assert.ok(tableIndex > materialIndex);
   assert.match(documentXml, /S235JR/);
+  assert.doesNotMatch(documentXml, /MERCANC(?:IA|\u00cdA)\s*:/);
   assert.doesNotMatch(documentXml, /PESO BOBINA \(MT\)/);
   assert.doesNotMatch(documentXml, /10,000 - 15,000 MT/);
 });
@@ -129,6 +130,7 @@ test("replaces merchandise header and origin line", async () => {
   const buffer = await renderConfirmationDocx(
     {
       ...fakeConfirmation(),
+      contractNumber: "STA-2026-030",
       origin: "Planta Madrid (ES / FR)",
       deliveryTerms: "DDP - Delivered Duty Paid",
       items: [
@@ -146,13 +148,29 @@ test("replaces merchandise header and origin line", async () => {
   );
   const zip = await JSZip.loadAsync(buffer);
   const documentXml = await zip.file("word/document.xml").async("string");
+  const paragraphs = [...documentXml.matchAll(/<w:p[\s\S]*?<\/w:p>/g)].map((match) => match[0]);
+  const titleIndex = paragraphs.findIndex(
+    (paragraph) => extractParagraphText(paragraph) === "CONFIRMACI\u00d3N DE PEDIDO STA-2026-030"
+  );
+  const materialIntro = paragraphs.find((paragraph) =>
+    extractParagraphText(paragraph).includes("SIGUIENTE MATERIAL:")
+  );
 
-  assert.match(documentXml, /MERCANC/);
+  assert.ok(titleIndex > 2, "The confirmation title should have three blank lines before it");
+  assert.equal(extractParagraphText(paragraphs[titleIndex - 1]), "");
+  assert.equal(extractParagraphText(paragraphs[titleIndex - 2]), "");
+  assert.equal(extractParagraphText(paragraphs[titleIndex - 3]), "");
+  assert.equal(extractParagraphText(paragraphs[titleIndex + 1]), "");
+  assert.equal(extractParagraphText(paragraphs[titleIndex + 2]), "");
+  assert.match(paragraphs[titleIndex - 1], /<w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="exact"\/>/);
+  assert.match(paragraphs[titleIndex + 1], /<w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="exact"\/>/);
+  assert.doesNotMatch(documentXml, /CONFIRMACI\u00d3N DE PEDIDO:/);
+  assert.ok(materialIntro, "The introduction paragraph should end with SIGUIENTE MATERIAL:");
   assert.doesNotMatch(documentXml, /MERCANCIA:/);
-  assert.match(documentXml, /MERCANC\u00cdA:/);
+  assert.doesNotMatch(documentXml, /MERCANC\u00cdA:/);
   assert.match(
     documentXml,
-    /MERCANC\u00cdA:[\s\S]*<w:spacing w:before="0" w:after="0" w:line="120" w:lineRule="exact"\/>[\s\S]*<w:tbl>/
+    /SIGUIENTE MATERIAL:[\s\S]*<w:spacing w:before="0" w:after="0" w:line="120" w:lineRule="exact"\/>[\s\S]*<w:tbl>/
   );
   assert.match(documentXml, /ORIGEN: Planta Madrid \(ES \/ FR\)/);
     assert.match(documentXml, /CONDICIONES DE ENTREGA: DDP - Delivered Duty Paid Madrid/);

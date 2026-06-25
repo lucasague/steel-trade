@@ -38,7 +38,7 @@ export async function renderConfirmationDocx(confirmation, { mode }) {
         }
         if (name === "word/document.xml") {
           xml = replaceCustomerHeaderBlock(xml, confirmation);
-          xml = insertTableAfterMerchandise(xml, merchandiseTable);
+          xml = insertTableAfterMaterialIntro(xml, merchandiseTable);
           const showsStorageLine = mode === "formato3";
           if (hasMultipleOrigins) {
             xml = removeOriginLine(xml);
@@ -74,8 +74,8 @@ function buildReplacements(confirmation, { mode, hasMultipleOrigins = false }) {
     ["CLIENTE XXXXX", signatureName],
     ["DIRECCI\u00d3N CLIENTE XXXX", customerAddressText],
     ["CIF CLLIENTE XXX", customerTaxId],
-    ["CONFIRMACI\u00d3N DE PEDIDO: STA \u2013 2026-XXXX", `CONFIRMACI\u00d3N DE PEDIDO: ${confirmation.contractNumber}`],
-    ["CONFIRMACI\u00d3N DE PEDIDO: STA - 2026-XXXX", `CONFIRMACI\u00d3N DE PEDIDO: ${confirmation.contractNumber}`],
+    ["CONFIRMACI\u00d3N DE PEDIDO: STA \u2013 2026-XXXX", `CONFIRMACI\u00d3N DE PEDIDO ${confirmation.contractNumber}`],
+    ["CONFIRMACI\u00d3N DE PEDIDO: STA - 2026-XXXX", `CONFIRMACI\u00d3N DE PEDIDO ${confirmation.contractNumber}`],
     ["MERCANCIA :", "MERCANC\u00cdA:"],
     ["MERCANCIA:", "MERCANC\u00cdA:"],
     ["MARCANCIA :", "MERCANC\u00cdA:"],
@@ -405,16 +405,51 @@ function cellXml({ text, span, align, bold, shade }, columnIndex) {
   ].join("");
 }
 
-function insertTableAfterMerchandise(xml, tableXml) {
+function insertTableAfterMaterialIntro(xml, tableXml) {
   let inserted = false;
-  const result = xml.replace(/<w:p[\s\S]*?<\/w:p>/g, (paragraph) => {
+  let result = xml.replace(/<w:p[\s\S]*?<\/w:p>/g, (paragraph) => {
     if (inserted) return paragraph;
-    const text = normalizeForMatch(paragraphText(paragraph));
-    if (!text.includes("mercancia") && !text.includes("marcancia")) return paragraph;
+    if (!isMaterialIntroParagraph(paragraph)) return paragraph;
     inserted = true;
-    return `${paragraph}${halfLineBlankParagraph()}${tableXml}`;
+    return `${ensureMaterialIntroColon(paragraph)}${halfLineBlankParagraph()}${tableXml}`;
+  });
+  if (inserted) return removeStandaloneMerchandiseHeading(result);
+
+  result = xml.replace(/<w:p[\s\S]*?<\/w:p>/g, (paragraph) => {
+    if (inserted) return paragraph;
+    if (!isStandaloneMerchandiseHeading(paragraph)) return paragraph;
+    inserted = true;
+    return `${halfLineBlankParagraph()}${tableXml}`;
   });
   return inserted ? result : xml;
+}
+
+function isMaterialIntroParagraph(paragraph) {
+  const text = normalizeForMatch(paragraphText(paragraph)).replace(/\s+/g, " ").trim();
+  return text.includes("le agradecemos su pedido") && text.includes("siguiente material");
+}
+
+function ensureMaterialIntroColon(paragraph) {
+  const text = paragraphText(paragraph);
+  if (/SIGUIENTE\s+MATERIAL\s*:\s*$/i.test(text)) return paragraph;
+  return replaceParagraphText(
+    paragraph,
+    text.replace(/SIGUIENTE\s+MATERIAL\s*:?\s*$/i, "SIGUIENTE MATERIAL:")
+  );
+}
+
+function removeStandaloneMerchandiseHeading(xml) {
+  return xml.replace(/<w:p[\s\S]*?<\/w:p>/g, (paragraph) =>
+    isStandaloneMerchandiseHeading(paragraph) ? "" : paragraph
+  );
+}
+
+function isStandaloneMerchandiseHeading(paragraph) {
+  const text = normalizeForMatch(paragraphText(paragraph))
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\s*:\s*$/, "");
+  return text === "mercancia" || text === "marcancia";
 }
 
 function halfLineBlankParagraph() {
@@ -425,12 +460,69 @@ function halfLineBlankParagraph() {
   ].join("");
 }
 
+function blankLineParagraph() {
+  return [
+    "<w:p>",
+    '<w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="exact"/></w:pPr>',
+    "</w:p>"
+  ].join("");
+}
+
 function applyDocumentLayoutRules(xml) {
-  return collapseConsecutiveBlankParagraphs(
-    normalizeLongParagraphSpacing(
-      shrinkIntroParagraph(xml)
+  return normalizeConfirmationTitleSpacing(
+    collapseConsecutiveBlankParagraphs(
+      normalizeLongParagraphSpacing(
+        shrinkIntroParagraph(xml)
+      )
     )
   );
+}
+
+function normalizeConfirmationTitleSpacing(xml) {
+  const paragraphMatches = [...xml.matchAll(/<w:p[\s\S]*?<\/w:p>/g)];
+  const titleIndex = paragraphMatches.findIndex((match) => isConfirmationTitleParagraph(match[0]));
+  if (titleIndex < 0) return xml;
+
+  let endIndex = titleIndex;
+  while (
+    endIndex + 1 < paragraphMatches.length &&
+    isBlankParagraph(paragraphMatches[endIndex + 1][0])
+  ) {
+    endIndex += 1;
+  }
+
+  const titleParagraph = normalizeConfirmationTitleText(paragraphMatches[titleIndex][0]);
+  const start = paragraphMatches[titleIndex].index;
+  const endMatch = paragraphMatches[endIndex];
+  if (start === undefined || endMatch.index === undefined) return xml;
+  const end = endMatch.index + endMatch[0].length;
+  const replacement = [
+    blankLineParagraph(),
+    blankLineParagraph(),
+    blankLineParagraph(),
+    titleParagraph,
+    blankLineParagraph(),
+    blankLineParagraph()
+  ].join("");
+
+  return `${xml.slice(0, start)}${replacement}${xml.slice(end)}`;
+}
+
+function isConfirmationTitleParagraph(paragraph) {
+  const text = normalizeForMatch(paragraphText(paragraph)).replace(/\s+/g, " ").trim();
+  return text.includes("confirmacion de pedido");
+}
+
+function normalizeConfirmationTitleText(paragraph) {
+  const text = paragraphText(paragraph).replace(
+    /CONFIRMACI\u00d3N\s+DE\s+PEDIDO\s*:\s*/i,
+    "CONFIRMACI\u00d3N DE PEDIDO "
+  );
+  return replaceParagraphText(paragraph, text);
+}
+
+function isBlankParagraph(paragraph) {
+  return !paragraph.includes("<w:drawing") && paragraphText(paragraph).trim() === "";
 }
 
 function shrinkIntroParagraph(xml) {
