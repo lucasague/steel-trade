@@ -447,13 +447,36 @@ function shouldRemovePackingLine(text) {
 
 function removeBankDetails(xml, showBankDetails) {
   if (showBankDetails) {
-    return xml.replace(/<w:p[\s\S]*?<\/w:p>/g, (paragraph) => {
+    const paragraphs = [...xml.matchAll(/<w:p[\s\S]*?<\/w:p>/g)].map(({ 0: paragraph }) => paragraph);
+    const withUpdatedHeader = paragraphs.map((paragraph) => {
       const text = normalizeForMatch(paragraphText(paragraph));
       if (isTransferOnlyBankHeader(text)) {
         return replaceParagraphText(paragraph, "DETALLES BANCARIOS:");
       }
       return paragraph;
     });
+
+    const result = [];
+    for (let index = 0; index < withUpdatedHeader.length; index++) {
+      const paragraph = withUpdatedHeader[index];
+      const text = normalizeForMatch(paragraphText(paragraph));
+
+      result.push(paragraph);
+      if (!isCaixaBankLine(text)) {
+        continue;
+      }
+
+      const previous = result[result.length - 2];
+      const previousText = previous ? normalizeForMatch(paragraphText(previous)) : "";
+      if (previousText.includes("detalles bancarios")) {
+        continue;
+      }
+
+      result.pop();
+      const headerParagraph = replaceParagraphText(paragraph, "DETALLES BANCARIOS:");
+      result.push(headerParagraph, paragraph);
+    }
+    return result.join("");
   }
   return xml.replace(/<w:p[\s\S]*?<\/w:p>/g, (paragraph) => {
     const text = normalizeForMatch(paragraphText(paragraph));
@@ -464,6 +487,10 @@ function removeBankDetails(xml, showBankDetails) {
   });
 }
 
+function isCaixaBankLine(text) {
+  return String(text || "").includes("caixa bank");
+}
+
 function isTransferOnlyBankHeader(text) {
   const normalizedText = String(text || "")
     .toLowerCase()
@@ -471,7 +498,10 @@ function isTransferOnlyBankHeader(text) {
     .replace(/\s+/g, " ")
     .trim();
 
-  return normalizedText.includes("cuando el pago es por transferencia");
+  return (
+    normalizedText.includes("cuando el pago es por transferencia") &&
+    !normalizedText.includes("caixa bank")
+  );
 }
 
 function isBankDetailsParagraph(text) {

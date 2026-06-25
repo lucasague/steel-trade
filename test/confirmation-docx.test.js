@@ -170,6 +170,15 @@ test("adds bank details only when payment is transfer", async () => {
   assert.match(transferXml, /DETALLES BANCARIOS:?\s*/);
   assert.match(transferXml, /CAIXA BANK - ES40 2100 6428 2213 0012 3884/);
   assert.doesNotMatch(transferXml, /CUANDO EL PAGO ES POR TRANSFERENCIA/);
+  const transferParagraphs = [...transferXml.matchAll(/<w:p[\s\S]*?<\/w:p>/g)].map((paragraph) => paragraph[0]);
+  const transferBankLineIndex = transferParagraphs.findIndex((paragraph) => paragraph.includes("CAIXA BANK - ES40 2100 6428 2213 0012 3884"));
+  const transferBankHeaderIndex = transferParagraphs
+    .map((paragraph, index) => ({ paragraph, index }))
+    .filter((item) => /DETALLES BANCARIOS:/.test(item.paragraph))
+    .map((item) => item.index)
+    .filter((index) => index < transferBankLineIndex)
+    .at(-1);
+  assert.equal(transferBankHeaderIndex, transferBankLineIndex - 1);
 
   const nonTransferBuffer = await renderConfirmationDocx(
     {
