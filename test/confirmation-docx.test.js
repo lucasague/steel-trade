@@ -384,6 +384,9 @@ test("replaces signature block with final confirmation paragraph", async () => {
     extractParagraphText(finalParagraph),
     "Salvo comunicación expresa en contra por escrito dentro de las 24 horas siguientes a la recepción de esta confirmación, el pedido se dará por confirmado en todos sus términos."
   );
+  assert.match(finalParagraph, /<w:jc w:val="both"\/>/);
+  assert.doesNotMatch(finalParagraph, /<w:ind\b/);
+  assert.match(finalParagraph, /<w:b\/>/);
   assert.doesNotMatch(documentXml, /FOR AND ON BEHALF OF/);
   assert.doesNotMatch(documentXml, /STEEL TRADE ADVISORS, S\.L\.U\./);
   assert.doesNotMatch(documentXml, /TECHOS FALSTECH/);

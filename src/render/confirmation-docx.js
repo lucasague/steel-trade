@@ -675,6 +675,35 @@ function setParagraphSpacing(paragraph, { before, after, line, lineRule }) {
   return paragraph.replace(/<w:p([^>]*)>/, `<w:p$1><w:pPr>${spacing}</w:pPr>`);
 }
 
+function setParagraphJustification(paragraph, value) {
+  const justification = `<w:jc w:val="${value}"/>`;
+  if (paragraph.includes("<w:pPr>")) {
+    if (/<w:jc\b[^>]*\/>/.test(paragraph)) {
+      return paragraph.replace(/<w:jc\b[^>]*\/>/, justification);
+    }
+    return paragraph.replace("</w:pPr>", `${justification}</w:pPr>`);
+  }
+
+  return paragraph.replace(/<w:p([^>]*)>/, `<w:p$1><w:pPr>${justification}</w:pPr>`);
+}
+
+function setParagraphBold(paragraph) {
+  return paragraph
+    .replace(/<w:pPr>[\s\S]*?<\/w:pPr>/, (paragraphProperties) =>
+      addBoldToRunProperties(paragraphProperties)
+    )
+    .replace(/<w:rPr>[\s\S]*?<\/w:rPr>/g, (runProperties) =>
+      addBoldToRunProperties(runProperties)
+    );
+}
+
+function addBoldToRunProperties(runProperties) {
+  return runProperties
+    .replace(/<w:b\b[^>]*\/>/g, "")
+    .replace(/<w:bCs\b[^>]*\/>/g, "")
+    .replace("</w:rPr>", "<w:b/><w:bCs/></w:rPr>");
+}
+
 function setParagraphFontSize(paragraph, size) {
   const sizeXml = `<w:sz w:val="${size}"/>`;
   const complexSizeXml = `<w:szCs w:val="${size}"/>`;
@@ -862,20 +891,37 @@ function replaceSignatureBlockWithConfirmationNote(xml) {
   );
   if (signatureParagraphIndex < 0) return xml;
 
-  const signatureParagraph = paragraphs[signatureParagraphIndex];
   const headerMatch = paragraphMatches[headerParagraphIndex];
   const signatureMatch = paragraphMatches[signatureParagraphIndex];
   if (headerMatch.index === undefined || signatureMatch.index === undefined) return xml;
   if (signatureMatch.index < headerMatch.index) return xml;
 
-  const confirmationParagraph = replaceParagraphText(
-    removeParagraphBoldFromProperties(signatureParagraph),
-    FINAL_CONFIRMATION_TEXT
-  );
+  const sourceParagraph = findPreviousBodyParagraph(paragraphs, headerParagraphIndex) ||
+    paragraphs[signatureParagraphIndex];
+  const confirmationParagraph = buildFinalConfirmationParagraph(sourceParagraph);
 
   const start = headerMatch.index;
   const end = signatureMatch.index + signatureMatch[0].length;
   return `${xml.slice(0, start)}${confirmationParagraph}${xml.slice(end)}`;
+}
+
+function findPreviousBodyParagraph(paragraphs, beforeIndex) {
+  for (let index = beforeIndex - 1; index >= 0; index -= 1) {
+    const paragraph = paragraphs[index];
+    const text = paragraphText(paragraph).trim();
+    if (!text || paragraph.includes("<w:drawing")) continue;
+    return paragraph;
+  }
+  return "";
+}
+
+function buildFinalConfirmationParagraph(sourceParagraph) {
+  return setParagraphJustification(
+    setParagraphBold(
+      replaceParagraphText(sourceParagraph, FINAL_CONFIRMATION_TEXT)
+    ),
+    "both"
+  );
 }
 
 function shouldRemovePackingLine(text) {
