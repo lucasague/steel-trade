@@ -465,7 +465,8 @@ function removePackingLine(xml) {
 function placeClientSignatureRight(xml, clientName) {
   if (!clientName) return xml;
 
-  const paragraphs = [...xml.matchAll(/<w:p[\s\S]*?<\/w:p>/g)].map((match) => match[0]);
+  const paragraphMatches = [...xml.matchAll(/<w:p[\s\S]*?<\/w:p>/g)];
+  const paragraphs = paragraphMatches.map((match) => match[0]);
   const headerParagraphIndex = paragraphs.findIndex((paragraph) => {
     const normalizedParagraphText = normalizeForMatch(paragraphText(paragraph));
     return normalizedParagraphText.includes("for and on behalf of");
@@ -484,29 +485,72 @@ function placeClientSignatureRight(xml, clientName) {
   );
   if (signatureParagraphIndex < 0) return xml;
 
+  const headerParagraph = paragraphs[headerParagraphIndex];
   const signatureParagraph = paragraphs[signatureParagraphIndex];
-  const signatureStart = signatureParagraph.match(/^<w:p[^>]*>/)?.[0];
-  if (!signatureStart) return xml;
+  const headerMatch = paragraphMatches[headerParagraphIndex];
+  const signatureMatch = paragraphMatches[signatureParagraphIndex];
+  if (headerMatch.index === undefined || signatureMatch.index === undefined) return xml;
+  if (signatureMatch.index < headerMatch.index) return xml;
 
-  const runProps = signatureParagraph.match(/<w:rPr>[\s\S]*?<\/w:rPr>/)?.[0];
-  const runPropsInner = runProps
-    ? runProps.replace("<w:rPr>", "").replace("</w:rPr>", "")
+  const headerRun = headerParagraph.match(/<w:rPr>[\s\S]*?<\/w:rPr>/)?.[0];
+  const signatureRun = signatureParagraph.match(/<w:rPr>[\s\S]*?<\/w:rPr>/)?.[0];
+  const headerRunInner = headerRun
+    ? headerRun.replace("<w:rPr>", "").replace("</w:rPr>", "")
     : "";
-  const headerPPr = paragraphs[headerParagraphIndex].match(/<w:pPr>[\s\S]*?<\/w:pPr>/)?.[0];
-  const signaturePPr = signatureParagraph.match(/<w:pPr>[\s\S]*?<\/w:pPr>/)?.[0];
-  const basePPr = headerPPr || signaturePPr || "";
+  const signatureRunInner = signatureRun
+    ? signatureRun.replace("<w:rPr>", "").replace("</w:rPr>", "")
+    : headerRunInner;
 
-  const tabsInsertedPPr = basePPr.includes("<w:tabs>")
-    ? basePPr
-    : basePPr.replace("<w:pPr>", '<w:pPr><w:tabs><w:tab w:val="left" w:pos="5172"/></w:tabs>');
+  const signatureTable = buildSignatureTable({
+    headerText: "FOR AND ON BEHALF OF",
+    leftBottomText: "STEEL TRADE ADVISORS, S.L.U.",
+    rightBottomText: clientName,
+    headerRunProps: headerRunInner,
+    bottomRunProps: signatureRunInner
+  });
 
-  const signatureLine = `${signatureStart}${tabsInsertedPPr}
-    <w:r><w:rPr>${runPropsInner}</w:rPr><w:t xml:space="preserve">STEEL TRADE ADVISORS, S.L.U.</w:t></w:r>
-    <w:r><w:rPr>${runPropsInner}</w:rPr><w:tab/></w:r>
-    <w:r><w:rPr>${runPropsInner}</w:rPr><w:t>${escapeXml(clientName)}</w:t></w:r>
-  </w:p>`;
+  const start = headerMatch.index;
+  const end = signatureMatch.index + signatureMatch[0].length;
+  return `${xml.slice(0, start)}${signatureTable}${xml.slice(end)}`;
+}
 
-  return xml.replace(signatureParagraph, signatureLine);
+function buildSignatureTable({
+  headerText,
+  leftBottomText,
+  rightBottomText,
+  headerRunProps,
+  bottomRunProps
+}) {
+  const leftWidth = 5233;
+  const rightWidth = 5233;
+  const headerRunPr = headerRunProps || "";
+  const bottomRunPr = bottomRunProps || "";
+  const headerCell = (text, runProps) => [
+    "<w:tc>",
+    `<w:tcPr><w:tcW w:w="${leftWidth}" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>`,
+    "<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr>",
+    `<w:r><w:rPr>${runProps}</w:rPr><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r>`,
+    "</w:p></w:tc>"
+  ].join("");
+  const bottomCell = (text, runProps) => [
+    "<w:tc>",
+    `<w:tcPr><w:tcW w:w="${rightWidth}" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>`,
+    "<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr>",
+    `<w:r><w:rPr>${runProps}</w:rPr><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r>`,
+    "</w:p></w:tc>"
+  ].join("");
+
+  return [
+    "<w:tbl>",
+    "<w:tblPr>",
+    '<w:tblW w:w="10466" w:type="dxa"/>',
+    "<w:tblLayout w:type=\"fixed\"/>",
+    "</w:tblPr>",
+    `<w:tblGrid><w:gridCol w:w="${leftWidth}"/><w:gridCol w:w="${rightWidth}"/></w:tblGrid>`,
+    `<w:tr>${headerCell(headerText, headerRunPr)}${headerCell(headerText, headerRunPr)}</w:tr>`,
+    `<w:tr>${bottomCell(leftBottomText, bottomRunPr)}${bottomCell(rightBottomText, bottomRunPr)}</w:tr>`,
+    "</w:tbl>"
+  ].join("");
 }
 
 function shouldRemovePackingLine(text) {

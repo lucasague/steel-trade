@@ -249,19 +249,17 @@ test("places client name in the right signature column", async () => {
   const buffer = await renderConfirmationDocx(fakeConfirmation(), { mode: "formato1" });
   const zip = await JSZip.loadAsync(buffer);
   const documentXml = await zip.file("word/document.xml").async("string");
-  const paragraphs = [...documentXml.matchAll(/<w:p[\s\S]*?<\/w:p>/g)].map((match) => match[0]);
-  const signatureParagraph = paragraphs.find(
-    (paragraph) =>
-      paragraph.includes("STEEL TRADE ADVISORS, S.L.U.") &&
-      paragraph.includes(fakeConfirmation().customer.fiscalName)
+  const tables = [...documentXml.matchAll(/<w:tbl>[\s\S]*?<\/w:tbl>/g)].map((match) => match[0]);
+  const signatureTable = tables.find(
+    (table) =>
+      table.includes("FOR AND ON BEHALF OF") &&
+      table.includes("STEEL TRADE ADVISORS, S.L.U.") &&
+      table.includes(fakeConfirmation().customer.fiscalName)
   );
 
-  assert.ok(signatureParagraph, "The final signature paragraph should include client name");
-  assert.match(signatureParagraph, /STEEL TRADE ADVISORS, S\.L\.U\./);
-  assert.ok(
-    /w:tab\/>[\s\S]*Cliente Test/.test(signatureParagraph),
-    "Client name should be after a tab in the signature line"
-  );
+  assert.ok(signatureTable, "The final signature block should be a table with client name");
+  assert.match(signatureTable, /<w:gridCol/);
+  assert.match(signatureTable, /<w:jc w:val="center"\/>/);
 });
 
 test("normalizes client name in signature to avoid embedded line breaks", async () => {
@@ -280,15 +278,15 @@ test("normalizes client name in signature to avoid embedded line breaks", async 
   );
   const doc = await JSZip.loadAsync(buffer);
   const documentXml = await doc.file("word/document.xml").async("string");
-  const paragraphs = [...documentXml.matchAll(/<w:p[\s\S]*?<\/w:p>/g)].map((match) => match[0]);
-  const signatureParagraph = paragraphs.find(
-    (paragraph) =>
-      /STEEL TRADE ADVISORS, S\.L\.U\./.test(paragraph) &&
-      /ACME GLOBAL SL/.test(paragraph)
+  const tables = [...documentXml.matchAll(/<w:tbl>[\s\S]*?<\/w:tbl>/g)].map((match) => match[0]);
+  const signatureTable = tables.find(
+    (table) =>
+      /STEEL TRADE ADVISORS, S\.L\.U\./.test(table) &&
+      /ACME GLOBAL SL/.test(table)
   );
-  assert.ok(signatureParagraph);
+  assert.ok(signatureTable, "The signature table should include normalized client name");
 
-  const signatureText = extractParagraphText(signatureParagraph);
+  const signatureText = extractParagraphText(signatureTable);
   assert.equal(signatureText.includes(signatureName), false);
   assert.equal(signatureText.includes("ACME GLOBAL SL"), true);
 });
