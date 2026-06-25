@@ -446,14 +446,16 @@ function sum(lines, key) {
 function formatMoney(value) {
   return new Intl.NumberFormat("es-ES", {
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2
+    maximumFractionDigits: 2,
+    useGrouping: true
   }).format(value || 0);
 }
 
 function formatUnits(value) {
   if (value === undefined || value === null || value === "") return "";
   return new Intl.NumberFormat("es-ES", {
-    maximumFractionDigits: 0
+    maximumFractionDigits: 0,
+    useGrouping: true
   }).format(value);
 }
 

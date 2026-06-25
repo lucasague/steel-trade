@@ -1,21 +1,24 @@
 export function formatNumber(value, digits = 3) {
   return new Intl.NumberFormat("es-ES", {
     minimumFractionDigits: digits,
-    maximumFractionDigits: digits
+    maximumFractionDigits: digits,
+    useGrouping: true
   }).format(value || 0);
 }
 
 export function formatCurrency(value) {
   return `${new Intl.NumberFormat("es-ES", {
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2
+    maximumFractionDigits: 2,
+    useGrouping: true
   }).format(value || 0)} \u20ac`;
 }
 
 export function formatPrice(value) {
   return `${new Intl.NumberFormat("es-ES", {
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2
+    maximumFractionDigits: 2,
+    useGrouping: true
   }).format(value || 0)} \u20ac`;
 }
 
@@ -30,4 +33,3 @@ export function buildMeasure({ thickness, width, length, fallback }) {
   );
   return parts.map((part) => String(part).replace(".", ",")).join(" x ");
 }
-

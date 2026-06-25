@@ -49,6 +49,32 @@ test("shows coil weight range only in grouped format", async () => {
   assert.doesNotMatch(sheetXml, /10,000 - 15,000 MT/);
 });
 
+test("formats quantities and money with thousands separators", async () => {
+  const buffer = await renderConfirmationDocx(
+    {
+      ...fakeConfirmation(),
+      totalQuantity: 12345.678,
+      items: [
+        {
+          ...fakeConfirmation().items[0],
+          quantity: 12345.678,
+          price: 12000,
+          amount: 148148.14
+        }
+      ]
+    },
+    {
+      mode: "formato1"
+    }
+  );
+  const zip = await JSZip.loadAsync(buffer);
+  const documentXml = await zip.file("word/document.xml").async("string");
+
+  assert.match(documentXml, /CANTIDAD TOTAL: 12\.345,678 MT/);
+  assert.match(documentXml, /12\.000,00/);
+  assert.match(documentXml, /148\.148,14/);
+});
+
 test("replaces merchandise header and origin line", async () => {
   const buffer = await renderConfirmationDocx(
     {
