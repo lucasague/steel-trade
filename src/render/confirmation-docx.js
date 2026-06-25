@@ -571,7 +571,13 @@ function buildCustomerHeaderTable({
     "</w:r>",
     "</w:p>"
   ].join("");
+  const customerTopSpacer = [
+    "<w:p>",
+    '<w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="exact"/></w:pPr>',
+    "</w:p>"
+  ].join("");
   const rightParagraphs = [
+    customerTopSpacer,
     textParagraph(customerName, {
       bold: true,
       size: headerNameFontSize(customerName),
