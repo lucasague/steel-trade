@@ -118,11 +118,11 @@ function toPercent(value) {
 
 function formatCoilWeightRange(minNet, maxNet) {
   if (minNet === undefined && maxNet === undefined) return "";
-  if (minNet === undefined) return `${formatNumber(maxNet, 3)} MT`;
+  if (minNet === undefined) return `${formatNumber(maxNet, 3)}`;
   if (maxNet === undefined || maxNet === minNet) {
-    return `${formatNumber(minNet, 3)} MT`;
+    return `${formatNumber(minNet, 3)}`;
   }
-  return `${formatNumber(minNet, 3)} - ${formatNumber(maxNet, 3)} MT`;
+  return `${formatNumber(minNet, 3)} - ${formatNumber(maxNet, 3)}`;
 }
 
 function formatDateEs(value) {

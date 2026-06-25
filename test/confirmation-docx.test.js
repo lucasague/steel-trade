@@ -28,7 +28,7 @@ test("shows coil weight range only in grouped format", async () => {
 
   assert.match(groupedXml, /RANGO \(MT\)/);
   assert.doesNotMatch(groupedXml, /PESO BOBINA \(MT\)/);
-  assert.match(groupedXml, /10,000 - 15,000 MT/);
+  assert.match(groupedXml, /10,000 - 15,000/);
 
   const detailBuffer = await renderConfirmationDocx(fakeConfirmation(), {
     mode: "detail"
