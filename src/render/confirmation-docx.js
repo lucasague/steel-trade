@@ -57,6 +57,7 @@ function buildReplacements(confirmation, { mode, hasMultipleOrigins = false }) {
   const origin = getSingleOrigin(confirmation);
   const originLine = hasMultipleOrigins ? "" : `ORIGEN: ${origin}`;
   const showsBankDetails = isTransferPaymentTerm(confirmation.paymentTerms);
+  const customerMunicipality = customer?.city || "";
   return [
     ["CLIENTE XXXXX", customer.fiscalName || customer.commercialName || ""],
     ["DIRECCI\u00d3N CLIENTE XXXX", customerAddress(customer)],
@@ -74,7 +75,10 @@ function buildReplacements(confirmation, { mode, hasMultipleOrigins = false }) {
     ],
     [
       "CONDICIONES DE ENTREGA: INCOTERM DE LA VENTA",
-      `CONDICIONES DE ENTREGA: ${confirmation.deliveryTerms || ""}`
+      `CONDICIONES DE ENTREGA: ${deliveryTermsWithMunicipality(
+        confirmation.deliveryTerms,
+        customerMunicipality
+      )}`
     ],
     ["PESO BOBINA: RANGO DEL ITEM DE COMPRA", ""],
   [
@@ -196,6 +200,21 @@ function buildHeaderRow(mode, hasMultipleOrigins = false) {
     cell("PRECIO (EUR/MT)", { bold: true, align: "center", shade: "EDEDED" }),
     cell("TOTAL EUR", { bold: true, align: "center", shade: "EDEDED" })
   ];
+}
+
+function deliveryTermsWithMunicipality(deliveryTerms, municipality) {
+  const normalizedTerms = String(deliveryTerms || "").trim();
+  const normalizedMunicipality = String(municipality || "").trim();
+
+  if (!normalizedTerms || !normalizedMunicipality) {
+    return normalizedTerms;
+  }
+
+  const normalized = normalizeForMatch(normalizedMunicipality);
+  const normalizedSource = normalizeForMatch(normalizedTerms);
+  if (normalizedSource.endsWith(normalized)) return normalizedTerms;
+
+  return `${normalizedTerms} ${normalizedMunicipality}`;
 }
 
 function buildLineRow(line, index, mode, hasMultipleOrigins = false) {

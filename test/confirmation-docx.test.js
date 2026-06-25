@@ -100,7 +100,7 @@ test("replaces merchandise header and origin line", async () => {
   assert.match(documentXml, /MERCANC/);
   assert.doesNotMatch(documentXml, /MERCANCIA:/);
   assert.match(documentXml, /ORIGEN: Planta Madrid \(ES \/ FR\)/);
-  assert.match(documentXml, /CONDICIONES DE ENTREGA: DDP/);
+    assert.match(documentXml, /CONDICIONES DE ENTREGA: DDP - Delivered Duty Paid Madrid/);
 });
 
 test("uses origin column when multiple origins are present", async () => {
