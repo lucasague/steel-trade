@@ -438,10 +438,14 @@ function shouldRemovePackingLine(text) {
 
   const compactText = normalizedText.replace(/[^a-z0-9\s:]/g, " ");
 
+  if (compactText.includes("standard export packing")) return true;
+  if (compactText.includes("para todo menos para chapa")) return true;
+  if (compactText.includes("packing list")) return false;
+  if (compactText.includes("pcking")) return true;
+
   return (
     /\b(packing|pcking)\b/.test(compactText) ||
-    compactText.includes("standard export packing") ||
-    compactText.includes("para todo menos para chapa")
+    compactText.includes("packing:")
   );
 }
 

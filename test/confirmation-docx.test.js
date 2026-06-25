@@ -211,10 +211,37 @@ test("removes any packing line in all formats", async () => {
     const zip = await JSZip.loadAsync(buffer);
     const documentXml = await zip.file("word/document.xml").async("string");
 
-    assert.doesNotMatch(documentXml, /\bPACKING\b/i);
-    assert.doesNotMatch(documentXml, /\bPCKING\b/i);
+    assert.match(documentXml, /PACKING LIST/);
     assert.doesNotMatch(documentXml, /PACKING:\s*Standard export packing/i);
     assert.doesNotMatch(documentXml, /standard export packing/i);
+  }
+});
+
+test("always keeps fixed documentos lines in all formats", async () => {
+  const modes = ["formato1", "formato2", "formato3"];
+  for (const mode of modes) {
+    const buffer = await renderConfirmationDocx(fakeConfirmation(), { mode });
+    const zip = await JSZip.loadAsync(buffer);
+    const documentXml = await zip.file("word/document.xml").async("string");
+
+    const paragraphs = [...documentXml.matchAll(/<w:p[\s\S]*?<\/w:p>/g)].map((match) =>
+      match[0].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim()
+    );
+    const documentosIndex = paragraphs.findIndex((paragraph) => paragraph.includes("DOCUMENTOS:"));
+    const facturaIndex = paragraphs.findIndex((paragraph, index) =>
+      index > documentosIndex && paragraph.includes("FACTURA COMERCIAL ORIGINAL")
+    );
+    const packingIndex = paragraphs.findIndex((paragraph, index) =>
+      index > documentosIndex && paragraph.includes("PACKING LIST")
+    );
+    const millIndex = paragraphs.findIndex((paragraph, index) =>
+      index > documentosIndex && paragraph.includes("MILL TEST CERTIFICADO 3.1 ACORDE A")
+    );
+
+    assert.ok(documentosIndex > -1);
+    assert.ok(facturaIndex > documentosIndex);
+    assert.ok(packingIndex > facturaIndex);
+    assert.ok(millIndex > packingIndex);
   }
 });
 
