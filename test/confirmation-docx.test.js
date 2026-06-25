@@ -139,8 +139,35 @@ test("replaces merchandise header and origin line", async () => {
 
   assert.match(documentXml, /MERCANC/);
   assert.doesNotMatch(documentXml, /MERCANCIA:/);
+  assert.match(documentXml, /MERCANC\u00cdA:/);
+  assert.match(
+    documentXml,
+    /MERCANC\u00cdA:[\s\S]*<w:spacing w:before="0" w:after="0" w:line="120" w:lineRule="exact"\/>[\s\S]*<w:tbl>/
+  );
   assert.match(documentXml, /ORIGEN: Planta Madrid \(ES \/ FR\)/);
     assert.match(documentXml, /CONDICIONES DE ENTREGA: DDP - Delivered Duty Paid Madrid/);
+});
+
+test("keeps body paragraph spacing tight with a blank line after long paragraphs", async () => {
+  const buffer = await renderConfirmationDocx(fakeConfirmation(), { mode: "formato3" });
+  const zip = await JSZip.loadAsync(buffer);
+  const documentXml = await zip.file("word/document.xml").async("string");
+  const paragraphs = [...documentXml.matchAll(/<w:p[\s\S]*?<\/w:p>/g)].map((match) => match[0]);
+  const introParagraph = paragraphs.find((paragraph) =>
+    extractParagraphText(paragraph).includes("LE AGRADECEMOS SU PEDIDO")
+  );
+  const reclamacionesParagraph = paragraphs.find((paragraph) =>
+    extractParagraphText(paragraph).startsWith("RECLAMACIONES:")
+  );
+
+  assert.ok(introParagraph, "The introduction sentence should be present");
+  assert.match(introParagraph, /<w:sz w:val="21"\/>/);
+  assert.match(introParagraph, /<w:szCs w:val="21"\/>/);
+  assert.ok(reclamacionesParagraph, "The reclamaciones paragraph should be present");
+  assert.match(
+    reclamacionesParagraph,
+    /<w:spacing w:before="0" w:after="240" w:line="240" w:lineRule="auto"\/>/
+  );
 });
 
 test("uses origin column when multiple origins are present", async () => {

@@ -50,6 +50,7 @@ export async function renderConfirmationDocx(confirmation, { mode }) {
           xml = removePackingLine(xml);
           xml = removeBankDetails(xml, isTransferPaymentTerm(confirmation.paymentTerms));
           xml = replaceReclamacionesLine(xml);
+          xml = applyDocumentLayoutRules(xml);
         }
         zip.file(name, xml);
       })
@@ -75,10 +76,10 @@ function buildReplacements(confirmation, { mode, hasMultipleOrigins = false }) {
     ["CIF CLLIENTE XXX", customerTaxId],
     ["CONFIRMACI\u00d3N DE PEDIDO: STA \u2013 2026-XXXX", `CONFIRMACI\u00d3N DE PEDIDO: ${confirmation.contractNumber}`],
     ["CONFIRMACI\u00d3N DE PEDIDO: STA - 2026-XXXX", `CONFIRMACI\u00d3N DE PEDIDO: ${confirmation.contractNumber}`],
-    ["MERCANCIA :", "MERCANC\u00cdA"],
-    ["MERCANCIA:", "MERCANC\u00cdA"],
-    ["MARCANCIA :", "MERCANC\u00cdA"],
-    ["MARCANCIA:", "MERCANC\u00cdA"],
+    ["MERCANCIA :", "MERCANC\u00cdA:"],
+    ["MERCANCIA:", "MERCANC\u00cdA:"],
+    ["MARCANCIA :", "MERCANC\u00cdA:"],
+    ["MARCANCIA:", "MERCANC\u00cdA:"],
     ["ORIGEN: FABRICA Y PAÃS", originLine],
     [
       "CANTIDAD TOTAL: 600,000 MT (+ / - 10%)",
@@ -411,9 +412,102 @@ function insertTableAfterMerchandise(xml, tableXml) {
     const text = normalizeForMatch(paragraphText(paragraph));
     if (!text.includes("mercancia") && !text.includes("marcancia")) return paragraph;
     inserted = true;
-    return `${paragraph}${tableXml}`;
+    return `${paragraph}${halfLineBlankParagraph()}${tableXml}`;
   });
   return inserted ? result : xml;
+}
+
+function halfLineBlankParagraph() {
+  return [
+    "<w:p>",
+    '<w:pPr><w:spacing w:before="0" w:after="0" w:line="120" w:lineRule="exact"/></w:pPr>',
+    "</w:p>"
+  ].join("");
+}
+
+function applyDocumentLayoutRules(xml) {
+  return collapseConsecutiveBlankParagraphs(
+    normalizeLongParagraphSpacing(
+      shrinkIntroParagraph(xml)
+    )
+  );
+}
+
+function shrinkIntroParagraph(xml) {
+  return xml.replace(/<w:p[\s\S]*?<\/w:p>/g, (paragraph) => {
+    const text = normalizeForMatch(paragraphText(paragraph)).replace(/\s+/g, " ");
+    if (!text.includes("le agradecemos su pedido") || !text.includes("material")) {
+      return paragraph;
+    }
+    return setParagraphFontSize(paragraph, 21);
+  });
+}
+
+function normalizeLongParagraphSpacing(xml) {
+  return xml.replace(/<w:p[\s\S]*?<\/w:p>/g, (paragraph) => {
+    const text = normalizeForMatch(paragraphText(paragraph))
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!shouldTightenParagraphSpacing(text)) return paragraph;
+
+    return setParagraphSpacing(paragraph, {
+      before: "0",
+      after: "240",
+      line: "240",
+      lineRule: "auto"
+    });
+  });
+}
+
+function shouldTightenParagraphSpacing(text) {
+  if (!text) return false;
+  if (text.startsWith("reclamaciones:")) return true;
+  if (text.startsWith("fuerza mayor:")) return true;
+  return text.length > 140;
+}
+
+function collapseConsecutiveBlankParagraphs(xml) {
+  let blankCount = 0;
+  return xml.replace(/<w:p[\s\S]*?<\/w:p>/g, (paragraph) => {
+    const isBlank = !paragraph.includes("<w:drawing") && paragraphText(paragraph).trim() === "";
+    if (isBlank && paragraph.includes('w:line="120"')) {
+      blankCount = 0;
+      return paragraph;
+    }
+    if (!isBlank) {
+      blankCount = 0;
+      return paragraph;
+    }
+
+    blankCount += 1;
+    if (blankCount > 1) return "";
+    return setParagraphSpacing(paragraph, {
+      before: "0",
+      after: "0",
+      line: "240",
+      lineRule: "exact"
+    });
+  });
+}
+
+function setParagraphSpacing(paragraph, { before, after, line, lineRule }) {
+  const spacing = `<w:spacing w:before="${before}" w:after="${after}" w:line="${line}" w:lineRule="${lineRule}"/>`;
+  if (paragraph.includes("<w:pPr>")) {
+    if (/<w:spacing\b[^>]*\/>/.test(paragraph)) {
+      return paragraph.replace(/<w:spacing\b[^>]*\/>/, spacing);
+    }
+    return paragraph.replace("<w:pPr>", `<w:pPr>${spacing}`);
+  }
+
+  return paragraph.replace(/<w:p([^>]*)>/, `<w:p$1><w:pPr>${spacing}</w:pPr>`);
+}
+
+function setParagraphFontSize(paragraph, size) {
+  const sizeXml = `<w:sz w:val="${size}"/>`;
+  const complexSizeXml = `<w:szCs w:val="${size}"/>`;
+  return paragraph
+    .replace(/<w:sz w:val="\d+"\/>/g, sizeXml)
+    .replace(/<w:szCs w:val="\d+"\/>/g, complexSizeXml);
 }
 
 function replaceCustomerHeaderBlock(xml, confirmation) {
