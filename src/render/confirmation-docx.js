@@ -517,7 +517,8 @@ function shouldSplitLabelValueBold(label) {
 }
 
 function replaceParagraphRuns(paragraph, runs) {
-  const runMatches = [...paragraph.matchAll(/<w:r(?:\s[^>]*)?>[\s\S]*?<\/w:r>/g)];
+  const normalizedParagraph = removeParagraphBoldFromProperties(paragraph);
+  const runMatches = [...normalizedParagraph.matchAll(/<w:r(?:\s[^>]*)?>[\s\S]*?<\/w:r>/g)];
   if (!runMatches.length) return paragraph;
 
   const firstRunXml = runMatches[0][0];
@@ -531,7 +532,7 @@ function replaceParagraphRuns(paragraph, runs) {
   if (start === undefined || lastRun.index === undefined) return paragraph;
   const end = lastRun.index + lastRun[0].length;
 
-  return `${paragraph.slice(0, start)}${replacementRuns}${paragraph.slice(end)}`;
+  return `${normalizedParagraph.slice(0, start)}${replacementRuns}${normalizedParagraph.slice(end)}`;
 }
 
 function buildTextRun(text, runProps) {
@@ -551,6 +552,12 @@ function removeBoldFromRunProps(runProps) {
 
 function addBoldToRunProps(runProps) {
   return `${removeBoldFromRunProps(runProps)}<w:b/><w:bCs/>`;
+}
+
+function removeParagraphBoldFromProperties(paragraph) {
+  return paragraph.replace(/<w:pPr>[\s\S]*?<\/w:pPr>/, (paragraphProperties) =>
+    removeBoldFromRunProps(paragraphProperties)
+  );
 }
 
 function normalizeConfirmationTitleSpacing(xml) {

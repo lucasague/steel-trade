@@ -526,11 +526,14 @@ function assertOnlyLabelBold(documentXml, label, valueStart) {
   assert.ok(paragraph, `${label} paragraph should exist`);
 
   const runs = textRuns(paragraph);
+  const paragraphProperties = paragraph.match(/<w:pPr>[\s\S]*?<\/w:pPr>/)?.[0] || "";
   const labelRun = runs.find((run) => run.text === label);
   const valueRun = runs.find((run) => run.text.trim().startsWith(valueStart));
 
   assert.ok(labelRun, `${label} should be in its own run`);
   assert.ok(valueRun, `${label} value should be in its own run`);
+  assert.doesNotMatch(paragraphProperties, /<w:b\b/);
+  assert.doesNotMatch(paragraphProperties, /<w:bCs\b/);
   assert.match(labelRun.xml, /<w:b\/>/);
   assert.doesNotMatch(valueRun.xml, /<w:b\b/);
   assert.doesNotMatch(valueRun.xml, /<w:bCs\b/);
