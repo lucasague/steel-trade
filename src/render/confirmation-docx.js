@@ -12,8 +12,10 @@ const RECLAMACIONES_TEXT =
 
 export async function renderConfirmationDocx(confirmation, { mode }) {
   const zip = await JSZip.loadAsync(readFileSync(TEMPLATE_URL));
-  const replacements = buildReplacements(confirmation, { mode });
-  const merchandiseTable = buildMerchandiseTableXml(confirmation, mode);
+  const hasMultipleOrigins = getOriginCount(confirmation) > 1;
+  const origin = getSingleOrigin(confirmation);
+  const replacements = buildReplacements(confirmation, { mode, hasMultipleOrigins });
+  const merchandiseTable = buildMerchandiseTableXml(confirmation, mode, hasMultipleOrigins);
 
   await Promise.all(
     Object.keys(zip.files)
@@ -33,6 +35,11 @@ export async function renderConfirmationDocx(confirmation, { mode }) {
         if (name === "word/document.xml") {
           xml = insertTableAfterMerchandise(xml, merchandiseTable);
           const showsStorageLine = mode === "formato3";
+          if (hasMultipleOrigins) {
+            xml = removeOriginLine(xml);
+          } else {
+            xml = replaceOriginLine(xml, `ORIGEN: ${origin}`);
+          }
           xml = updateStorageLine(xml, showsStorageLine);
           xml = removePackingLine(xml);
           xml = removeBankDetails(xml, isTransferPaymentTerm(confirmation.paymentTerms));
@@ -45,9 +52,10 @@ export async function renderConfirmationDocx(confirmation, { mode }) {
   return zip.generateAsync({ type: "nodebuffer" });
 }
 
-function buildReplacements(confirmation, { mode }) {
+function buildReplacements(confirmation, { mode, hasMultipleOrigins = false }) {
   const customer = confirmation.customer;
-  const origin = confirmation.origin || "Seg\u00fan contrato de compra";
+  const origin = getSingleOrigin(confirmation);
+  const originLine = hasMultipleOrigins ? "" : `ORIGEN: ${origin}`;
   const showsBankDetails = isTransferPaymentTerm(confirmation.paymentTerms);
   return [
     ["CLIENTE XXXXX", customer.fiscalName || customer.commercialName || ""],
@@ -59,7 +67,7 @@ function buildReplacements(confirmation, { mode }) {
     ["MERCANCIA:", "MERCANC\u00cdA"],
     ["MARCANCIA :", "MERCANC\u00cdA"],
     ["MARCANCIA:", "MERCANC\u00cdA"],
-    ["ORIGEN: FABRICA Y PAÃS", `ORIGEN: ${origin}`],
+    ["ORIGEN: FABRICA Y PAÃS", originLine],
     [
       "CANTIDAD TOTAL: 600,000 MT (+ / - 10%)",
       `CANTIDAD TOTAL: ${formatNumber(confirmation.totalQuantity, 3)} MT ${formatTolerance(confirmation)}`
@@ -131,16 +139,16 @@ function formatDateEs(value) {
   return match ? `${match[3]}/${match[2]}/${match[1]}` : String(value);
 }
 
-function buildMerchandiseTableXml(confirmation, mode) {
+function buildMerchandiseTableXml(confirmation, mode, hasMultipleOrigins = false) {
   const lines = getConfirmationLines(confirmation, mode);
   const subtotal = sum(lines, "amount");
   const vat = roundMoney(subtotal * VAT_RATE);
   const total = roundMoney(subtotal + vat);
-  const tableWidths = mode === "formato3" ? SHEET_TABLE_WIDTHS : TABLE_WIDTHS;
+  const tableWidths = getTableWidths(mode, hasMultipleOrigins);
   const rows = [
-    buildHeaderRow(mode),
-    ...lines.map((line, index) => buildLineRow(line, index + 1, mode)),
-    ...buildSummaryRows(lines, subtotal, vat, total, mode)
+    buildHeaderRow(mode, hasMultipleOrigins),
+    ...lines.map((line, index) => buildLineRow(line, index + 1, mode, hasMultipleOrigins)),
+    ...buildSummaryRows(lines, subtotal, vat, total, mode, hasMultipleOrigins)
   ];
 
   return [
@@ -156,11 +164,12 @@ function buildMerchandiseTableXml(confirmation, mode) {
   ].join("");
 }
 
-function buildHeaderRow(mode) {
+function buildHeaderRow(mode, hasMultipleOrigins = false) {
   if (mode === "detail") {
     return [
       cell("ITEM", { bold: true, align: "center", shade: "EDEDED" }),
       cell("ESPECIFICACIÓN", { bold: true, align: "center", shade: "EDEDED" }),
+      ...(hasMultipleOrigins ? [cell("ORIGEN", { bold: true, align: "center", shade: "EDEDED" })] : []),
       cell("NÚMERO DE BOBINA", { span: 2, bold: true, align: "center", shade: "EDEDED" }),
       cell("CANTIDAD (MT)", { bold: true, align: "center", shade: "EDEDED" }),
       cell("PRECIO (EUR/MT)", { bold: true, align: "center", shade: "EDEDED" }),
@@ -171,6 +180,7 @@ function buildHeaderRow(mode) {
     return [
       cell("ITEM", { bold: true, align: "center", shade: "EDEDED" }),
       cell("ESPECIFICACIÓN", { span: 2, bold: true, align: "center", shade: "EDEDED" }),
+      ...(hasMultipleOrigins ? [cell("ORIGEN", { bold: true, align: "center", shade: "EDEDED" })] : []),
       cell("UNIDADES", { bold: true, align: "center", shade: "EDEDED" }),
       cell("CANTIDAD (MT)", { bold: true, align: "center", shade: "EDEDED" }),
       cell("PRECIO (EUR/MT)", { bold: true, align: "center", shade: "EDEDED" }),
@@ -179,7 +189,8 @@ function buildHeaderRow(mode) {
   }
   return [
     cell("ITEM", { bold: true, align: "center", shade: "EDEDED" }),
-    cell("ESPECIFICACIÓN", { span: 3, bold: true, align: "center", shade: "EDEDED" }),
+    cell("ESPECIFICACIÓN", { span: hasMultipleOrigins ? 2 : 3, bold: true, align: "center", shade: "EDEDED" }),
+    ...(hasMultipleOrigins ? [cell("ORIGEN", { bold: true, align: "center", shade: "EDEDED" })] : []),
     cell("RANGO (MT)", { bold: true, align: "center", shade: "EDEDED" }),
     cell("CANTIDAD (MT)", { bold: true, align: "center", shade: "EDEDED" }),
     cell("PRECIO (EUR/MT)", { bold: true, align: "center", shade: "EDEDED" }),
@@ -187,12 +198,13 @@ function buildHeaderRow(mode) {
   ];
 }
 
-function buildLineRow(line, index, mode) {
+function buildLineRow(line, index, mode, hasMultipleOrigins = false) {
   const itemNumber = line.itemNumber || index;
   if (mode === "detail") {
     return [
       cell(itemNumber, { align: "center" }),
       cell(line.specification),
+      ...(hasMultipleOrigins ? [cell(line.origin || "")] : []),
       cell(line.factoryId || "", { span: 2 }),
       cell(formatNumber(line.quantity, 3), { align: "right" }),
       cell(formatMoney(line.price), { align: "right" }),
@@ -203,6 +215,7 @@ function buildLineRow(line, index, mode) {
     return [
       cell(itemNumber, { align: "center" }),
       cell(line.specification, { span: 2 }),
+      ...(hasMultipleOrigins ? [cell(line.origin || "")] : []),
       cell(formatUnits(line.units), { align: "right" }),
       cell(formatNumber(line.quantity, 3), { align: "right" }),
       cell(formatMoney(line.price), { align: "right" }),
@@ -211,7 +224,8 @@ function buildLineRow(line, index, mode) {
   }
   return [
     cell(itemNumber, { align: "center" }),
-    cell(line.specification, { span: 3 }),
+    cell(line.specification, { span: hasMultipleOrigins ? 2 : 3 }),
+    ...(hasMultipleOrigins ? [cell(line.origin || "")] : []),
     cell(formatCoilWeightRange(line.minNet, line.maxNet), { align: "right" }),
     cell(formatNumber(line.quantity, 3), { align: "right" }),
     cell(formatMoney(line.price), { align: "right" }),
@@ -219,19 +233,22 @@ function buildLineRow(line, index, mode) {
   ];
 }
 
-function buildSummaryRows(lines, subtotal, vat, total, mode) {
+function buildSummaryRows(lines, subtotal, vat, total, mode, hasMultipleOrigins = false) {
+  const quantityColSpan = hasMultipleOrigins && (mode === "detail" || mode === "formato3") ? 5 : 4;
+  const vatColSpan = hasMultipleOrigins && (mode === "detail" || mode === "formato3") ? 7 : 6;
+  const totalSpan = hasMultipleOrigins && (mode === "detail" || mode === "formato3") ? 8 : 7;
   if (mode === "detail") {
     return [
-      [cell("", { span: 4 }), cell(formatNumber(sum(lines, "quantity"), 3), { align: "right", bold: true }), cell(""), cell(formatMoney(subtotal), { align: "right", bold: true })],
-      [cell("IVA 21%", { span: 6, align: "right", bold: true }), cell(formatMoney(vat), { align: "right", bold: true })],
-      [cell(formatMoney(total), { span: 7, align: "right", bold: true, shade: "EDEDED" })]
+      [cell("", { span: quantityColSpan }), cell(formatNumber(sum(lines, "quantity"), 3), { align: "right", bold: true }), cell(""), cell(formatMoney(subtotal), { align: "right", bold: true })],
+      [cell("IVA 21%", { span: vatColSpan, align: "right", bold: true }), cell(formatMoney(vat), { align: "right", bold: true })],
+      [cell(formatMoney(total), { span: totalSpan, align: "right", bold: true, shade: "EDEDED" })]
     ];
   }
   if (mode === "formato3") {
     return [
-      [cell("", { span: 4 }), cell(formatNumber(sum(lines, "quantity"), 3), { align: "right", bold: true }), cell(""), cell(formatMoney(subtotal), { align: "right", bold: true })],
-      [cell("IVA 21%", { span: 6, align: "right", bold: true }), cell(formatMoney(vat), { align: "right", bold: true })],
-      [cell(formatMoney(total), { span: 7, align: "right", bold: true, shade: "EDEDED" })]
+      [cell("", { span: quantityColSpan }), cell(formatNumber(sum(lines, "quantity"), 3), { align: "right", bold: true }), cell(""), cell(formatMoney(subtotal), { align: "right", bold: true })],
+      [cell("IVA 21%", { span: vatColSpan, align: "right", bold: true }), cell(formatMoney(vat), { align: "right", bold: true })],
+      [cell(formatMoney(total), { span: totalSpan, align: "right", bold: true, shade: "EDEDED" })]
     ];
   }
 
@@ -240,6 +257,63 @@ function buildSummaryRows(lines, subtotal, vat, total, mode) {
     [cell("IVA 21%", { span: 7, align: "right", bold: true }), cell(formatMoney(vat), { align: "right", bold: true })],
     [cell(formatMoney(total), { span: 8, align: "right", bold: true, shade: "EDEDED" })]
   ];
+}
+
+function getTableWidths(mode, hasMultipleOrigins = false) {
+  if (mode === "detail" && hasMultipleOrigins) return TABLE_WIDTHS;
+  if (mode === "formato3" && hasMultipleOrigins) return TABLE_WIDTHS;
+  if (mode === "formato3") return SHEET_TABLE_WIDTHS;
+  if (mode === "detail") return TABLE_WIDTHS.slice(0, 7);
+  return TABLE_WIDTHS;
+}
+
+function removeOriginLine(xml) {
+  return xml.replace(/<w:p[\s\S]*?<\/w:p>/g, (paragraph) => {
+    const normalizedText = normalizeForMatch(paragraphText(paragraph));
+    const isOriginLine =
+      normalizedText.includes("origen") &&
+      normalizedText.includes("fabrica") &&
+      normalizedText.includes("pais");
+    return isOriginLine ? "" : paragraph;
+  });
+}
+
+function getOriginCount(confirmation) {
+  return getOriginList(confirmation).length;
+}
+
+function getSingleOrigin(confirmation) {
+  return getOriginList(confirmation)[0] || "Seg\u00fan contrato de compra";
+}
+
+function getOriginList(confirmation) {
+  if (Array.isArray(confirmation.origins) && confirmation.origins.length > 0) {
+    return dedupeOrigins(
+      confirmation.origins
+        .filter(Boolean)
+        .map((value) => String(value).trim())
+        .filter(Boolean)
+    );
+  }
+  if (!confirmation.origin) return [];
+  return [String(confirmation.origin).trim()].filter(Boolean);
+}
+
+function dedupeOrigins(values) {
+  return [...new Set(values)];
+}
+
+function replaceOriginLine(xml, replacementText) {
+  if (!replacementText) return xml;
+  return xml.replace(/<w:p[\s\S]*?<\/w:p>/g, (paragraph) => {
+    const normalizedText = normalizeForMatch(paragraphText(paragraph))
+      .replace(/\s+/g, " ");
+    const isOriginTemplateLine =
+      normalizedText.includes("origen") &&
+      normalizedText.includes("fabrica") &&
+      normalizedText.includes("pais");
+    return isOriginTemplateLine ? replaceParagraphText(paragraph, replacementText) : paragraph;
+  });
 }
 
 function cell(text, options = {}) {
@@ -376,7 +450,7 @@ function removeBankDetails(xml, showBankDetails) {
     return xml.replace(/<w:p[\s\S]*?<\/w:p>/g, (paragraph) => {
       const text = normalizeForMatch(paragraphText(paragraph));
       if (isTransferOnlyBankHeader(text)) {
-        return "";
+        return replaceParagraphText(paragraph, "DETALLES BANCARIOS:");
       }
       return paragraph;
     });

@@ -178,6 +178,12 @@ function normalizeConfirmation({
   const totalQuantity =
     numberValue(fields[CONTRATO_VENTA.PESO_POR_CONTRATO]) ||
     roundQuantity(items.reduce((sum, item) => sum + item.quantity, 0));
+  const origins = dedupe(
+    items
+      .map((item) => item.origin)
+      .filter(Boolean)
+      .flatMap(splitOrigin)
+  );
 
   return {
     recordId: record.id,
@@ -209,9 +215,8 @@ function normalizeConfirmation({
     },
     hasSheetMaterial,
     items,
-    origin: dedupe(
-      items.map((item) => item.origin).filter(Boolean)
-    ).join(" / "),
+    origin: origins.join(" / "),
+    origins,
     totalQuantity
   };
 }
@@ -330,6 +335,13 @@ function summarizeCoilWeights(purchaseRecords) {
   };
 }
 
+function splitOrigin(origin) {
+  return String(origin || "")
+    .split("/")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
 function normalizeExistence(record, { fallbackSpecification, price }) {
   const fields = fieldsOf(record);
   const quantity =
@@ -443,6 +455,7 @@ export function getConfirmationLines(confirmation, mode) {
           {
             itemNumber: item.number,
             specification: item.specification,
+            origin: item.origin,
             factoryId: "",
             minNet: item.minNet,
             maxNet: item.maxNet,
@@ -455,6 +468,7 @@ export function getConfirmationLines(confirmation, mode) {
       return item.existences.map((existence) => ({
         itemNumber: item.number,
         specification: item.specification || existence.specification,
+        origin: item.origin,
         factoryId: existence.factoryId,
         minNet: item.minNet,
         maxNet: item.maxNet,
@@ -468,6 +482,7 @@ export function getConfirmationLines(confirmation, mode) {
   return confirmation.items.map((item) => ({
     itemNumber: item.number,
     specification: item.specification,
+    origin: item.origin,
     units: item.sheetUnits,
     minNet: item.minNet,
     maxNet: item.maxNet,

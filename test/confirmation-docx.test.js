@@ -103,6 +103,57 @@ test("replaces merchandise header and origin line", async () => {
   assert.match(documentXml, /CONDICIONES DE ENTREGA: DDP/);
 });
 
+test("uses origin column when multiple origins are present", async () => {
+  const buffer = await renderConfirmationDocx(
+    {
+      ...fakeConfirmation(),
+      contractNumber: "STA-ORIG-01",
+      origins: ["Planta Norte (ES)", "Planta Sur (FR)"],
+      items: [
+        {
+          ...fakeConfirmation().items[0],
+          number: 1,
+          specification: "S235JR 2,00 x 1000 x 2000",
+          sheetUnits: 50,
+          quantity: 80,
+          price: 860,
+          amount: 68800,
+          origin: "Planta Norte (ES)",
+          minNet: 10,
+          maxNet: 15,
+          existences: []
+        },
+        {
+          ...fakeConfirmation().items[0],
+          number: 2,
+          specification: "S235JR 2,50 x 1250 x 2500",
+          sheetUnits: 25,
+          quantity: 120,
+          price: 900,
+          amount: 108000,
+          origin: "Planta Sur (FR)",
+          minNet: 12,
+          maxNet: 18,
+          existences: []
+        }
+      ],
+      totalQuantity: 200,
+      hasSheetMaterial: false
+    },
+    {
+      mode: "formato1"
+    }
+  );
+  const zip = await JSZip.loadAsync(buffer);
+  const documentXml = await zip.file("word/document.xml").async("string");
+
+  assert.doesNotMatch(documentXml, /ORIGEN:\s*Planta Norte/);
+  assert.doesNotMatch(documentXml, /ORIGEN:\s*Planta Sur/);
+  assert.match(documentXml, /ORIGEN/);
+  assert.match(documentXml, /Planta Norte \(ES\)/);
+  assert.match(documentXml, /Planta Sur \(FR\)/);
+});
+
 test("adds bank details only when payment is transfer", async () => {
   const transferBuffer = await renderConfirmationDocx(
     {
@@ -171,16 +222,19 @@ test("shows storage line only for formato 3 and keeps it black", async () => {
   const sheetDoc = await JSZip.loadAsync(sheetBuffer);
   const sheetXml = await sheetDoc.file("word/document.xml").async("string");
   const sheetStorageParagraph = sheetXml.match(
-    /<w:p[^>]*>[\s\S]*?ALMACENAJES:[\s\S]*?<\/w:p>/
+    /<w:p[\s\S]*?<\/w:p>/g
+  );
+  const storageParagraph = [...sheetStorageParagraph || []].find((paragraph) =>
+    /ALMACENAJES:[\s\S]*30 DIAS LIBRES/i.test(paragraph)
   );
 
-  assert.ok(sheetStorageParagraph, "ALMACENAJES line should be present in formato 3");
+  assert.ok(storageParagraph, "ALMACENAJES line should be present in formato 3");
   assert.doesNotMatch(
-    sheetStorageParagraph[0],
+    storageParagraph,
     /w:color w:val="EE0000"/,
     "Storage line should not keep red color in formato 3"
   );
-  assert.match(sheetStorageParagraph[0], /w:color w:val="000000"/);
+  assert.match(storageParagraph, /w:color w:val="000000"/);
 
   const nonSheetBuffer = await renderConfirmationDocx(
     {
