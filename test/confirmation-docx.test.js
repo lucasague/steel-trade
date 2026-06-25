@@ -5,7 +5,7 @@ import { renderConfirmationDocx } from "../src/render/confirmation-docx.js";
 
 test("inserts the merchandise table inside the confirmation Word", async () => {
   const buffer = await renderConfirmationDocx(fakeConfirmation(), {
-    mode: "formato3"
+    mode: "detail"
   });
   const zip = await JSZip.loadAsync(buffer);
   const documentXml = await zip.file("word/document.xml").async("string");
@@ -14,10 +14,38 @@ test("inserts the merchandise table inside the confirmation Word", async () => {
 
   assert.ok(merchandiseIndex > -1);
   assert.ok(tableIndex > merchandiseIndex);
-  assert.match(documentXml, /UNIDADES/);
   assert.match(documentXml, /S235JR/);
-  assert.match(documentXml, /PESO BOBINA \(MT\)/);
-  assert.match(documentXml, /10,000 - 15,000 MT/);
+  assert.doesNotMatch(documentXml, /PESO BOBINA \(MT\)/);
+  assert.doesNotMatch(documentXml, /10,000 - 15,000 MT/);
+});
+
+test("shows coil weight range only in grouped format", async () => {
+  const groupedBuffer = await renderConfirmationDocx(fakeConfirmation(), {
+    mode: "formato1"
+  });
+  const groupedDoc = await JSZip.loadAsync(groupedBuffer);
+  const groupedXml = await groupedDoc.file("word/document.xml").async("string");
+
+  assert.match(groupedXml, /PESO BOBINA \(MT\)/);
+  assert.match(groupedXml, /10,000 - 15,000 MT/);
+
+  const detailBuffer = await renderConfirmationDocx(fakeConfirmation(), {
+    mode: "detail"
+  });
+  const detailDoc = await JSZip.loadAsync(detailBuffer);
+  const detailXml = await detailDoc.file("word/document.xml").async("string");
+
+  assert.doesNotMatch(detailXml, /PESO BOBINA \(MT\)/);
+  assert.doesNotMatch(detailXml, /10,000 - 15,000 MT/);
+
+  const sheetBuffer = await renderConfirmationDocx(fakeConfirmation(), {
+    mode: "formato3"
+  });
+  const sheetDoc = await JSZip.loadAsync(sheetBuffer);
+  const sheetXml = await sheetDoc.file("word/document.xml").async("string");
+
+  assert.doesNotMatch(sheetXml, /PESO BOBINA \(MT\)/);
+  assert.doesNotMatch(sheetXml, /10,000 - 15,000 MT/);
 });
 
 test("replaces merchandise header and origin line", async () => {
@@ -42,8 +70,8 @@ test("replaces merchandise header and origin line", async () => {
   const zip = await JSZip.loadAsync(buffer);
   const documentXml = await zip.file("word/document.xml").async("string");
 
-  assert.match(documentXml, /MERCANCÍA/);
-  assert.doesNotMatch(documentXml, /MERCANCÍA:/);
+  assert.match(documentXml, /MERCANC/);
+  assert.doesNotMatch(documentXml, /MERCANCIA:/);
   assert.match(documentXml, /ORIGEN: Planta Madrid \(ES \/ FR\)/);
   assert.match(documentXml, /CONDICIONES DE ENTREGA: DDP/);
 });
@@ -61,8 +89,9 @@ test("adds bank details only when payment is transfer", async () => {
   const transferDoc = await JSZip.loadAsync(transferBuffer);
   const transferXml = await transferDoc.file("word/document.xml").async("string");
 
+  assert.match(transferXml, /DETALLES BANCARIOS:?\s*/);
   assert.match(transferXml, /CAIXA BANK - ES40 2100 6428 2213 0012 3884/);
-  assert.match(transferXml, /CUANDO EL PAGO ES POR TRANSFERENCIA/);
+  assert.doesNotMatch(transferXml, /CUANDO EL PAGO ES POR TRANSFERENCIA/);
 
   const nonTransferBuffer = await renderConfirmationDocx(
     {
@@ -77,6 +106,29 @@ test("adds bank details only when payment is transfer", async () => {
   const nonTransferXml = await nonTransferDoc.file("word/document.xml").async("string");
 
   assert.doesNotMatch(nonTransferXml, /CAIXA BANK - ES40 2100 6428 2213 0012 3884/);
+  assert.doesNotMatch(nonTransferXml, /DETALLES BANCARIOS/);
+});
+
+test("uses final reclamaciones text", async () => {
+  const buffer = await renderConfirmationDocx(fakeConfirmation(), { mode: "formato3" });
+  const doc = await JSZip.loadAsync(buffer);
+  const documentXml = await doc.file("word/document.xml").async("string");
+
+  assert.match(documentXml, /RECLAMACIONES: Si se encuentran da\u00f1os en las condiciones de los bienes[\s\S]*rfernandez@steeltradeadvisors\.com\./);
+});
+
+test("removes any packing line in all formats", async () => {
+  const modes = ["formato1", "formato2", "formato3"];
+  for (const mode of modes) {
+    const buffer = await renderConfirmationDocx(fakeConfirmation(), { mode });
+    const zip = await JSZip.loadAsync(buffer);
+    const documentXml = await zip.file("word/document.xml").async("string");
+
+    assert.doesNotMatch(documentXml, /\bPACKING\b/i);
+    assert.doesNotMatch(documentXml, /\bPCKING\b/i);
+    assert.doesNotMatch(documentXml, /PACKING:\s*Standard export packing/i);
+    assert.doesNotMatch(documentXml, /standard export packing/i);
+  }
 });
 
 test("shows storage line only for formato 3 and keeps it black", async () => {
@@ -119,6 +171,49 @@ test("shows storage line only for formato 3 and keeps it black", async () => {
     nonSheetXml,
     /ALMACENAJES: 30 DIAS LIBRES/
   );
+});
+
+test("never includes the 30 días libres storage text when not chapa", async () => {
+  const nonChapaModes = ["formato1", "formato2"];
+  for (const mode of nonChapaModes) {
+    const nonSheetBuffer = await renderConfirmationDocx(
+      {
+        ...fakeConfirmation(),
+        hasSheetMaterial: false
+      },
+      { mode }
+    );
+    const nonSheetDoc = await JSZip.loadAsync(nonSheetBuffer);
+    const nonSheetXml = await nonSheetDoc.file("word/document.xml").async("string");
+
+    assert.doesNotMatch(
+      nonSheetXml,
+      /30 DIAS LIBRES A PARTIR DE LA FECHA FACTURA/
+    );
+    assert.doesNotMatch(nonSheetXml, /30 DIAS LIBRES/);
+    assert.doesNotMatch(nonSheetXml, /ALMACENAJES:/);
+  }
+
+  const chapaLikeModes = ["formato1", "formato2"];
+  for (const mode of chapaLikeModes) {
+    const sheetButNonStorageBuffer = await renderConfirmationDocx(
+      {
+        ...fakeConfirmation(),
+        hasSheetMaterial: true
+      },
+      { mode }
+    );
+    const sheetButNonStorageDoc = await JSZip.loadAsync(sheetButNonStorageBuffer);
+    const sheetButNonStorageXml = await sheetButNonStorageDoc
+      .file("word/document.xml")
+      .async("string");
+
+    assert.doesNotMatch(
+      sheetButNonStorageXml,
+      /30 DIAS LIBRES A PARTIR DE LA FECHA FACTURA/
+    );
+    assert.doesNotMatch(sheetButNonStorageXml, /ALMACENAJES:/);
+  }
 });
 
 function fakeConfirmation() {

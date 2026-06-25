@@ -6,6 +6,9 @@ import { getConfirmationLines } from "../services/confirmation-service.js";
 const TEMPLATE_URL = new URL("../templates/confirmacion-pedido.docx", import.meta.url);
 const VAT_RATE = 0.21;
 const TABLE_WIDTHS = [650, 2350, 950, 1200, 1100, 1100, 1300, 1200];
+const SHEET_TABLE_WIDTHS = TABLE_WIDTHS.slice(0, 7);
+const RECLAMACIONES_TEXT =
+  "RECLAMACIONES: Si se encuentran daños en las condiciones de los bienes, o hay alguna disputa sobre calidad/cantidad/peso, se debe enviar un reclamo, incluyendo fotografías, informe de inspección, descripción detallada del reclamo o problema, al vendedor después de la entrega con un máximo de 30 días después de la llegada de los Bienes a las instalaciones del cliente para defectos visibles y con un plazo de 45 para el resto de los defectos. Cualquier reclamo debe enviarse al vendedor por correo electrónico a al menos la siguiente dirección de correo electrónico: rfernandez@steeltradeadvisors.com.";
 
 export async function renderConfirmationDocx(confirmation, { mode }) {
   const zip = await JSZip.loadAsync(readFileSync(TEMPLATE_URL));
@@ -29,8 +32,11 @@ export async function renderConfirmationDocx(confirmation, { mode }) {
         }
         if (name === "word/document.xml") {
           xml = insertTableAfterMerchandise(xml, merchandiseTable);
-          const showsStorageLine = confirmation.hasSheetMaterial && mode === "formato3";
+          const showsStorageLine = mode === "formato3";
           xml = updateStorageLine(xml, showsStorageLine);
+          xml = removePackingLine(xml);
+          xml = removeBankDetails(xml, isTransferPaymentTerm(confirmation.paymentTerms));
+          xml = replaceReclamacionesLine(xml);
         }
         zip.file(name, xml);
       })
@@ -41,24 +47,19 @@ export async function renderConfirmationDocx(confirmation, { mode }) {
 
 function buildReplacements(confirmation, { mode }) {
   const customer = confirmation.customer;
-  const origin = confirmation.origin || "Según contrato de compra";
-  const packing = confirmation.hasSheetMaterial
-    ? "PACKING: Según condiciones del pedido"
-    : "PACKING: Standard export packing";
+  const origin = confirmation.origin || "Seg\u00fan contrato de compra";
   const showsBankDetails = isTransferPaymentTerm(confirmation.paymentTerms);
-  const showsStorageLine = confirmation.hasSheetMaterial && mode === "formato3";
-
   return [
     ["CLIENTE XXXXX", customer.fiscalName || customer.commercialName || ""],
-    ["DIRECCIÓN CLIENTE XXXX", customerAddress(customer)],
+    ["DIRECCI\u00d3N CLIENTE XXXX", customerAddress(customer)],
     ["CIF CLLIENTE XXX", customer.taxId || ""],
-    ["CONFIRMACIÓN DE PEDIDO: STA – 2026-XXXX", `CONFIRMACIÓN DE PEDIDO: ${confirmation.contractNumber}`],
-    ["CONFIRMACIÓN DE PEDIDO: STA - 2026-XXXX", `CONFIRMACIÓN DE PEDIDO: ${confirmation.contractNumber}`],
-    ["MERCANCIA :", "MERCANCÍA"],
-    ["MERCANCIA:", "MERCANCÍA"],
-    ["MARCANCIA :", "MERCANCÍA"],
-    ["MARCANCIA:", "MERCANCÍA"],
-    ["ORIGEN: FABRICA Y PAÍS", `ORIGEN: ${origin}`],
+    ["CONFIRMACI\u00d3N DE PEDIDO: STA \u2013 2026-XXXX", `CONFIRMACI\u00d3N DE PEDIDO: ${confirmation.contractNumber}`],
+    ["CONFIRMACI\u00d3N DE PEDIDO: STA - 2026-XXXX", `CONFIRMACI\u00d3N DE PEDIDO: ${confirmation.contractNumber}`],
+    ["MERCANCIA :", "MERCANC\u00cdA"],
+    ["MERCANCIA:", "MERCANC\u00cdA"],
+    ["MARCANCIA :", "MERCANC\u00cdA"],
+    ["MARCANCIA:", "MERCANC\u00cdA"],
+    ["ORIGEN: FABRICA Y PAÃS", `ORIGEN: ${origin}`],
     [
       "CANTIDAD TOTAL: 600,000 MT (+ / - 10%)",
       `CANTIDAD TOTAL: ${formatNumber(confirmation.totalQuantity, 3)} MT ${formatTolerance(confirmation)}`
@@ -68,20 +69,14 @@ function buildReplacements(confirmation, { mode }) {
       `CONDICIONES DE ENTREGA: ${confirmation.deliveryTerms || ""}`
     ],
     ["PESO BOBINA: RANGO DEL ITEM DE COMPRA", ""],
-    [
-      "PACKING:  Standard export packing  ( PARA TODO MENOS PARA CHAPA Y  CALIENTE",
-      packing
-    ],
-    [
-      "CONDICIONES DE PAGO :  LA FORMA DE PAGO DEL PEDIDO",
-      `CONDICIONES DE PAGO: ${confirmation.paymentTerms || ""}`
-    ],
-    ["CUANDO EL PAGO ES POR TRANSFERENCIA", showsBankDetails ? "CUANDO EL PAGO ES POR TRANSFERENCIA" : ""],
-    [
-      "CAIXA BANK - ES40 2100 6428 2213 0012 3884",
-      showsBankDetails ? "CAIXA BANK - ES40 2100 6428 2213 0012 3884" : ""
-    ],
-    ["ALMACENAJES:", showsStorageLine ? "ALMACENAJES:" : ""],
+  [
+    "CONDICIONES DE PAGO :  LA FORMA DE PAGO DEL PEDIDO",
+    `CONDICIONES DE PAGO: ${confirmation.paymentTerms || ""}`
+  ],
+  [
+    "CAIXA BANK - ES40 2100 6428 2213 0012 3884",
+    showsBankDetails ? "CAIXA BANK - ES40 2100 6428 2213 0012 3884" : ""
+  ],
     ["TECHOS FALSTECH", customer.fiscalName || customer.commercialName || ""]
   ];
 }
@@ -141,20 +136,11 @@ function buildMerchandiseTableXml(confirmation, mode) {
   const subtotal = sum(lines, "amount");
   const vat = roundMoney(subtotal * VAT_RATE);
   const total = roundMoney(subtotal + vat);
+  const tableWidths = mode === "formato3" ? SHEET_TABLE_WIDTHS : TABLE_WIDTHS;
   const rows = [
     buildHeaderRow(mode),
     ...lines.map((line, index) => buildLineRow(line, index + 1, mode)),
-    [
-      cell("", { span: 5 }),
-      cell(formatNumber(sum(lines, "quantity"), 3), { align: "right", bold: true }),
-      cell(""),
-      cell(formatMoney(subtotal), { align: "right", bold: true })
-    ],
-    [
-      cell("IVA 21%", { span: 7, align: "right", bold: true }),
-      cell(formatMoney(vat), { align: "right", bold: true })
-    ],
-    [cell(formatMoney(total), { span: 8, align: "right", bold: true, shade: "EDEDED" })]
+    ...buildSummaryRows(lines, subtotal, vat, total, mode)
   ];
 
   return [
@@ -164,7 +150,7 @@ function buildMerchandiseTableXml(confirmation, mode) {
     '<w:tblLayout w:type="fixed"/>',
     '<w:tblCellMar><w:top w:w="45" w:type="dxa"/><w:left w:w="45" w:type="dxa"/><w:bottom w:w="45" w:type="dxa"/><w:right w:w="45" w:type="dxa"/></w:tblCellMar>',
     "</w:tblPr>",
-    `<w:tblGrid>${TABLE_WIDTHS.map((width) => `<w:gridCol w:w="${width}"/>`).join("")}</w:tblGrid>`,
+    `<w:tblGrid>${tableWidths.map((width) => `<w:gridCol w:w="${width}"/>`).join("")}</w:tblGrid>`,
     rows.map(rowXml).join(""),
     "</w:tbl>"
   ].join("");
@@ -176,7 +162,6 @@ function buildHeaderRow(mode) {
       cell("ITEM", { bold: true, align: "center", shade: "EDEDED" }),
       cell("ESPECIFICACIÓN", { bold: true, align: "center", shade: "EDEDED" }),
       cell("NÚMERO DE BOBINA", { span: 2, bold: true, align: "center", shade: "EDEDED" }),
-      cell("PESO BOBINA (MT)", { bold: true, align: "center", shade: "EDEDED" }),
       cell("CANTIDAD (MT)", { bold: true, align: "center", shade: "EDEDED" }),
       cell("PRECIO (EUR/MT)", { bold: true, align: "center", shade: "EDEDED" }),
       cell("TOTAL EUR", { bold: true, align: "center", shade: "EDEDED" })
@@ -187,7 +172,6 @@ function buildHeaderRow(mode) {
       cell("ITEM", { bold: true, align: "center", shade: "EDEDED" }),
       cell("ESPECIFICACIÓN", { span: 2, bold: true, align: "center", shade: "EDEDED" }),
       cell("UNIDADES", { bold: true, align: "center", shade: "EDEDED" }),
-      cell("PESO BOBINA (MT)", { bold: true, align: "center", shade: "EDEDED" }),
       cell("CANTIDAD (MT)", { bold: true, align: "center", shade: "EDEDED" }),
       cell("PRECIO (EUR/MT)", { bold: true, align: "center", shade: "EDEDED" }),
       cell("TOTAL EUR", { bold: true, align: "center", shade: "EDEDED" })
@@ -210,7 +194,6 @@ function buildLineRow(line, index, mode) {
       cell(itemNumber, { align: "center" }),
       cell(line.specification),
       cell(line.factoryId || "", { span: 2 }),
-      cell(formatCoilWeightRange(line.minNet, line.maxNet), { align: "right" }),
       cell(formatNumber(line.quantity, 3), { align: "right" }),
       cell(formatMoney(line.price), { align: "right" }),
       cell(formatMoney(line.amount), { align: "right" })
@@ -221,7 +204,6 @@ function buildLineRow(line, index, mode) {
       cell(itemNumber, { align: "center" }),
       cell(line.specification, { span: 2 }),
       cell(formatUnits(line.units), { align: "right" }),
-      cell(formatCoilWeightRange(line.minNet, line.maxNet), { align: "right" }),
       cell(formatNumber(line.quantity, 3), { align: "right" }),
       cell(formatMoney(line.price), { align: "right" }),
       cell(formatMoney(line.amount), { align: "right" })
@@ -234,6 +216,29 @@ function buildLineRow(line, index, mode) {
     cell(formatNumber(line.quantity, 3), { align: "right" }),
     cell(formatMoney(line.price), { align: "right" }),
     cell(formatMoney(line.amount), { align: "right" })
+  ];
+}
+
+function buildSummaryRows(lines, subtotal, vat, total, mode) {
+  if (mode === "detail") {
+    return [
+      [cell("", { span: 4 }), cell(formatNumber(sum(lines, "quantity"), 3), { align: "right", bold: true }), cell(""), cell(formatMoney(subtotal), { align: "right", bold: true })],
+      [cell("IVA 21%", { span: 6, align: "right", bold: true }), cell(formatMoney(vat), { align: "right", bold: true })],
+      [cell(formatMoney(total), { span: 7, align: "right", bold: true, shade: "EDEDED" })]
+    ];
+  }
+  if (mode === "formato3") {
+    return [
+      [cell("", { span: 4 }), cell(formatNumber(sum(lines, "quantity"), 3), { align: "right", bold: true }), cell(""), cell(formatMoney(subtotal), { align: "right", bold: true })],
+      [cell("IVA 21%", { span: 6, align: "right", bold: true }), cell(formatMoney(vat), { align: "right", bold: true })],
+      [cell(formatMoney(total), { span: 7, align: "right", bold: true, shade: "EDEDED" })]
+    ];
+  }
+
+  return [
+    [cell("", { span: 5 }), cell(formatNumber(sum(lines, "quantity"), 3), { align: "right", bold: true }), cell(""), cell(formatMoney(subtotal), { align: "right", bold: true })],
+    [cell("IVA 21%", { span: 7, align: "right", bold: true }), cell(formatMoney(vat), { align: "right", bold: true })],
+    [cell(formatMoney(total), { span: 8, align: "right", bold: true, shade: "EDEDED" })]
   ];
 }
 
@@ -296,12 +301,128 @@ function insertTableAfterMerchandise(xml, tableXml) {
 
 function updateStorageLine(xml, showStorageLine) {
   return xml.replace(/<w:p[\s\S]*?<\/w:p>/g, (paragraph) => {
-    if (!normalizeForMatch(paragraphText(paragraph)).includes("almacenajes")) return paragraph;
+    const normalizedText = normalizeForMatch(paragraphText(paragraph))
+      .replace(/\s+/g, " ");
+    const isStorageParagraph =
+      normalizedText.includes("almacenajes") ||
+      normalizedText.includes("30 dias libres") ||
+      normalizedText.includes("30 d\u00edas libres") ||
+      (normalizedText.includes("0,22") && normalizedText.includes("0,15")) ||
+      (normalizedText.includes("0.22") && normalizedText.includes("0.15")) ||
+      (normalizedText.includes("se facturar") && normalizedText.includes("eur/mt"));
+
+    if (!isStorageParagraph) return paragraph;
     if (!showStorageLine) {
       return "";
     }
+    if (!normalizedText.includes("0,22") && !normalizedText.includes("0.22")) {
+      return paragraph;
+    }
+    const currentText = paragraphText(paragraph);
+    const cleanedText = currentText
+      .replace(/\s*Y\s*0,22\s*EUR\/MT\s*PARA LA CHAPA\s*/i, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+    const normalizedCleaned = cleanedText.includes("PARA LA CHAPA")
+      ? cleanedText
+      : `${cleanedText} PARA LA CHAPA`;
 
-    return paragraph.replace(/<w:color w:val="EE0000"\/>/g, '<w:color w:val="000000"/>');
+    return replaceParagraphText(
+      paragraph,
+      normalizedCleaned
+    ).replace(/<w:color w:val="EE0000"\/>/g, '<w:color w:val="000000"/>');
+  });
+}
+
+function replaceReclamacionesLine(xml) {
+  let replaced = false;
+  return xml.replace(/<w:p[\s\S]*?<\/w:p>/g, (paragraph) => {
+    const text = normalizeForMatch(paragraphText(paragraph));
+    const isReclamacionesHeader = text.includes("reclamaciones");
+    const isReclamacionesBody =
+      text.includes("si se encuentran danos en las condiciones de los bienes") ||
+      text.includes("cualquier reclamo debe enviarse al vendedor");
+
+    if (!isReclamacionesHeader && !isReclamacionesBody) return paragraph;
+    if (replaced) return "";
+    replaced = true;
+    return replaceParagraphText(paragraph, RECLAMACIONES_TEXT);
+  });
+}
+
+function removePackingLine(xml) {
+  return xml.replace(/<w:p[\s\S]*?<\/w:p>/g, (paragraph) => {
+    const text = paragraphText(paragraph);
+    return shouldRemovePackingLine(text) ? "" : paragraph;
+  });
+}
+
+function shouldRemovePackingLine(text) {
+  const normalizedText = normalizeForMatch(text)
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const compactText = normalizedText.replace(/[^a-z0-9\s:]/g, " ");
+
+  return (
+    /\b(packing|pcking)\b/.test(compactText) ||
+    compactText.includes("standard export packing") ||
+    compactText.includes("para todo menos para chapa")
+  );
+}
+
+function removeBankDetails(xml, showBankDetails) {
+  if (showBankDetails) {
+    return xml.replace(/<w:p[\s\S]*?<\/w:p>/g, (paragraph) => {
+      const text = normalizeForMatch(paragraphText(paragraph));
+      if (isTransferOnlyBankHeader(text)) {
+        return "";
+      }
+      return paragraph;
+    });
+  }
+  return xml.replace(/<w:p[\s\S]*?<\/w:p>/g, (paragraph) => {
+    const text = normalizeForMatch(paragraphText(paragraph));
+    if (isBankDetailsParagraph(text)) {
+      return "";
+    }
+    return paragraph;
+  });
+}
+
+function isTransferOnlyBankHeader(text) {
+  const normalizedText = String(text || "")
+    .toLowerCase()
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return normalizedText.includes("cuando el pago es por transferencia");
+}
+
+function isBankDetailsParagraph(text) {
+  const normalizedText = String(text || "")
+    .toLowerCase()
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return (
+    (normalizedText.includes("detalles") && normalizedText.includes("bancarios")) ||
+    normalizedText.includes("detalles bancarios") ||
+    normalizedText.includes("cuando el pago es por transferencia") ||
+    normalizedText.includes("caixa bank")
+  );
+}
+
+function replaceParagraphText(paragraph, replacement) {
+  let wroteFirstRun = false;
+  return paragraph.replace(/<w:t(\s[^>]*)?>([\s\S]*?)<\/w:t>/g, (match, attrs = "") => {
+    if (!wroteFirstRun) {
+      wroteFirstRun = true;
+      return `<w:t${attrs}>${escapeXml(replacement)}</w:t>`;
+    }
+    return `<w:t${attrs}></w:t>`;
   });
 }
 
