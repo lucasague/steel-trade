@@ -524,7 +524,9 @@ function replaceCustomerHeaderBlock(xml, confirmation) {
   if (logoParagraphIndex < 0) return xml;
 
   const logoParagraph = paragraphMatches[logoParagraphIndex][0];
-  const logoRun = logoParagraph.match(/<w:r(?:\s[^>]*)?>[\s\S]*?<w:drawing>[\s\S]*?<\/w:drawing>[\s\S]*?<\/w:r>/)?.[0];
+  const logoRun = shrinkHeaderLogoRun(
+    logoParagraph.match(/<w:r(?:\s[^>]*)?>[\s\S]*?<w:drawing>[\s\S]*?<\/w:drawing>[\s\S]*?<\/w:r>/)?.[0]
+  );
   if (!logoRun) return xml;
 
   const dateParagraphIndex = paragraphMatches.findIndex((match, index) => {
@@ -557,12 +559,12 @@ function buildCustomerHeaderTable({
   confirmationDate
 }) {
   const tableWidth = 10466;
-  const leftWidth = 6320;
+  const leftWidth = 4800;
   const rightWidth = tableWidth - leftWidth;
   const cellProps = (width, extraProps = "") =>
     `<w:tcPr><w:tcW w:w="${width}" w:type="dxa"/><w:vAlign w:val="top"/>${extraProps}</w:tcPr>`;
-  const textParagraph = (text, { bold = false, size = 20 } = {}) => [
-    '<w:p><w:pPr><w:spacing w:after="0"/><w:jc w:val="right"/></w:pPr>',
+  const textParagraph = (text, { bold = false, size = 20, noWrap = false, fitWidth = "" } = {}) => [
+    `<w:p><w:pPr><w:spacing w:after="0"/><w:jc w:val="right"/>${noWrap ? "<w:noWrap/>" : ""}${fitWidth ? `<w:fitText w:val="${fitWidth}"/>` : ""}</w:pPr>`,
     "<w:r>",
     `<w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>${bold ? "<w:b/><w:bCs/>" : ""}<w:sz w:val="${size}"/><w:szCs w:val="${size}"/></w:rPr>`,
     `<w:t xml:space="preserve">${escapeXml(text)}</w:t>`,
@@ -570,7 +572,12 @@ function buildCustomerHeaderTable({
     "</w:p>"
   ].join("");
   const rightParagraphs = [
-    textParagraph(customerName, { bold: true, size: headerNameFontSize(customerName) }),
+    textParagraph(customerName, {
+      bold: true,
+      size: headerNameFontSize(customerName),
+      noWrap: true,
+      fitWidth: rightWidth
+    }),
     textParagraph(customerAddressText),
     textParagraph(customerTaxId),
     textParagraph(confirmationDate)
@@ -595,9 +602,19 @@ function buildCustomerHeaderTable({
 
 function headerNameFontSize(value) {
   const length = String(value || "").length;
-  if (length > 45) return 18;
-  if (length > 34) return 20;
-  return 22;
+  if (length > 60) return 14;
+  if (length > 45) return 16;
+  if (length > 34) return 18;
+  return 20;
+}
+
+function shrinkHeaderLogoRun(logoRun) {
+  if (!logoRun) return "";
+  const widthCx = "3000000";
+  const heightCy = "1066300";
+  return logoRun
+    .replace(/<wp:extent cx="\d+" cy="\d+"\/>/, `<wp:extent cx="${widthCx}" cy="${heightCy}"/>`)
+    .replace(/<a:ext cx="\d+" cy="\d+"\/>/, `<a:ext cx="${widthCx}" cy="${heightCy}"/>`);
 }
 
 function updateStorageLine(xml, showStorageLine) {
