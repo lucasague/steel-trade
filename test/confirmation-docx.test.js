@@ -245,6 +245,25 @@ test("always keeps fixed documentos lines in all formats", async () => {
   }
 });
 
+test("places client name in the right signature column", async () => {
+  const buffer = await renderConfirmationDocx(fakeConfirmation(), { mode: "formato1" });
+  const zip = await JSZip.loadAsync(buffer);
+  const documentXml = await zip.file("word/document.xml").async("string");
+  const paragraphs = [...documentXml.matchAll(/<w:p[\s\S]*?<\/w:p>/g)].map((match) => match[0]);
+  const signatureParagraph = paragraphs.find(
+    (paragraph) =>
+      paragraph.includes("STEEL TRADE ADVISORS, S.L.U.") &&
+      paragraph.includes(fakeConfirmation().customer.fiscalName)
+  );
+
+  assert.ok(signatureParagraph, "The final signature paragraph should include client name");
+  assert.match(signatureParagraph, /STEEL TRADE ADVISORS, S\.L\.U\./);
+  assert.ok(
+    /w:tab\/>[\s\S]*Cliente Test/.test(signatureParagraph),
+    "Client name should be after a tab in the signature line"
+  );
+});
+
 test("shows storage line only for formato 3 and keeps it black", async () => {
   const sheetBuffer = await renderConfirmationDocx(
     {

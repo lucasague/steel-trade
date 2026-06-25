@@ -16,6 +16,9 @@ export async function renderConfirmationDocx(confirmation, { mode }) {
   const origin = getSingleOrigin(confirmation);
   const replacements = buildReplacements(confirmation, { mode, hasMultipleOrigins });
   const merchandiseTable = buildMerchandiseTableXml(confirmation, mode, hasMultipleOrigins);
+  const clientName = confirmation.customer
+    ? confirmation.customer.fiscalName || confirmation.customer.commercialName || ""
+    : "";
 
   await Promise.all(
     Object.keys(zip.files)
@@ -41,6 +44,7 @@ export async function renderConfirmationDocx(confirmation, { mode }) {
             xml = replaceOriginLine(xml, `ORIGEN: ${origin}`);
           }
           xml = updateStorageLine(xml, showsStorageLine);
+          xml = placeClientSignatureRight(xml, clientName);
           xml = removePackingLine(xml);
           xml = removeBankDetails(xml, isTransferPaymentTerm(confirmation.paymentTerms));
           xml = replaceReclamacionesLine(xml);
@@ -448,6 +452,53 @@ function removePackingLine(xml) {
     const text = paragraphText(paragraph);
     return shouldRemovePackingLine(text) ? "" : paragraph;
   });
+}
+
+function placeClientSignatureRight(xml, clientName) {
+  if (!clientName) return xml;
+
+  const paragraphs = [...xml.matchAll(/<w:p[\s\S]*?<\/w:p>/g)].map((match) => match[0]);
+  const headerParagraphIndex = paragraphs.findIndex((paragraph) => {
+    const normalizedParagraphText = normalizeForMatch(paragraphText(paragraph));
+    return normalizedParagraphText.includes("for and on behalf of");
+  });
+  if (headerParagraphIndex < 0) return xml;
+
+  const signatureParagraphIndex = paragraphs.findIndex(
+    (paragraph, index) => {
+      if (index <= headerParagraphIndex) return false;
+      const normalizedParagraphText = normalizeForMatch(paragraphText(paragraph));
+      return (
+        normalizedParagraphText.includes("steel trade advisors") &&
+        (normalizedParagraphText.includes("s.l.u.") || normalizedParagraphText.includes("s.l."))
+      );
+    }
+  );
+  if (signatureParagraphIndex < 0) return xml;
+
+  const signatureParagraph = paragraphs[signatureParagraphIndex];
+  const signatureStart = signatureParagraph.match(/^<w:p[^>]*>/)?.[0];
+  if (!signatureStart) return xml;
+
+  const runProps = signatureParagraph.match(/<w:rPr>[\s\S]*?<\/w:rPr>/)?.[0];
+  const runPropsInner = runProps
+    ? runProps.replace("<w:rPr>", "").replace("</w:rPr>", "")
+    : "";
+  const headerPPr = paragraphs[headerParagraphIndex].match(/<w:pPr>[\s\S]*?<\/w:pPr>/)?.[0];
+  const signaturePPr = signatureParagraph.match(/<w:pPr>[\s\S]*?<\/w:pPr>/)?.[0];
+  const basePPr = headerPPr || signaturePPr || "";
+
+  const tabsInsertedPPr = basePPr.includes("<w:tabs>")
+    ? basePPr
+    : basePPr.replace("<w:pPr>", '<w:pPr><w:tabs><w:tab w:val="left" w:pos="5172"/></w:tabs>');
+
+  const signatureLine = `${signatureStart}${tabsInsertedPPr}
+    <w:r><w:rPr>${runPropsInner}</w:rPr><w:t xml:space="preserve">STEEL TRADE ADVISORS, S.L.U.</w:t></w:r>
+    <w:r><w:rPr>${runPropsInner}</w:rPr><w:tab/></w:r>
+    <w:r><w:rPr>${runPropsInner}</w:rPr><w:t>${escapeXml(clientName)}</w:t></w:r>
+  </w:p>`;
+
+  return xml.replace(signatureParagraph, signatureLine);
 }
 
 function shouldRemovePackingLine(text) {
