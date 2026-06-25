@@ -40,13 +40,13 @@ export async function renderConfirmationDocx(confirmation, { mode }) {
         if (name === "word/document.xml") {
           xml = replaceCustomerHeaderBlock(xml, confirmation);
           xml = insertTableAfterMaterialIntro(xml, merchandiseTable);
-          const showsStorageLine = mode === "formato3";
+          const storageRate = confirmation.hasSheetMaterial ? "0,22" : "0,15";
           if (hasMultipleOrigins) {
             xml = removeOriginLine(xml);
           } else {
             xml = replaceOriginLine(xml, `ORIGEN: ${origin}`);
           }
-          xml = updateStorageLine(xml, showsStorageLine);
+          xml = updateStorageLine(xml, storageRate);
           xml = placeClientSignatureRight(xml, clientName);
           xml = removePackingLine(xml);
           xml = removeBankDetails(xml, isTransferPaymentTerm(confirmation.paymentTerms));
@@ -201,7 +201,7 @@ function buildHeaderRow(mode, hasMultipleOrigins = false) {
       cell("ESPECIFICACIÓN", { bold: true, align: "center", shade: "EDEDED" }),
       ...(hasMultipleOrigins ? [cell("ORIGEN", { bold: true, align: "center", shade: "EDEDED" })] : []),
       cell("NÚMERO DE BOBINA", { span: 2, bold: true, align: "center", shade: "EDEDED" }),
-      cell("CANTIDAD (MT)", { bold: true, align: "center", shade: "EDEDED" }),
+      cell("PESO (MT)", { bold: true, align: "center", shade: "EDEDED" }),
       cell("PRECIO (EUR/MT)", { bold: true, align: "center", shade: "EDEDED" }),
       cell("TOTAL EUR", { bold: true, align: "center", shade: "EDEDED" })
     ];
@@ -212,7 +212,7 @@ function buildHeaderRow(mode, hasMultipleOrigins = false) {
       cell("ESPECIFICACIÓN", { span: 2, bold: true, align: "center", shade: "EDEDED" }),
       ...(hasMultipleOrigins ? [cell("ORIGEN", { bold: true, align: "center", shade: "EDEDED" })] : []),
       cell("UNIDADES", { bold: true, align: "center", shade: "EDEDED" }),
-      cell("CANTIDAD (MT)", { bold: true, align: "center", shade: "EDEDED" }),
+      cell("PESO (MT)", { bold: true, align: "center", shade: "EDEDED" }),
       cell("PRECIO (EUR/MT)", { bold: true, align: "center", shade: "EDEDED" }),
       cell("TOTAL EUR", { bold: true, align: "center", shade: "EDEDED" })
     ];
@@ -222,7 +222,7 @@ function buildHeaderRow(mode, hasMultipleOrigins = false) {
     cell("ESPECIFICACIÓN", { span: hasMultipleOrigins ? 2 : 3, bold: true, align: "center", shade: "EDEDED" }),
     ...(hasMultipleOrigins ? [cell("ORIGEN", { bold: true, align: "center", shade: "EDEDED" })] : []),
     cell("RANGO (MT)", { bold: true, align: "center", shade: "EDEDED" }),
-    cell("CANTIDAD (MT)", { bold: true, align: "center", shade: "EDEDED" }),
+    cell("PESO (MT)", { bold: true, align: "center", shade: "EDEDED" }),
     cell("PRECIO (EUR/MT)", { bold: true, align: "center", shade: "EDEDED" }),
     cell("TOTAL EUR", { bold: true, align: "center", shade: "EDEDED" })
   ];
@@ -716,7 +716,9 @@ function shrinkHeaderLogoRun(logoRun) {
     .replace(/<a:ext cx="\d+" cy="\d+"\/>/, `<a:ext cx="${widthCx}" cy="${heightCy}"/>`);
 }
 
-function updateStorageLine(xml, showStorageLine) {
+function updateStorageLine(xml, storageRate) {
+  const storageText =
+    `ALMACENAJES: 30 DÍAS LIBRES A PARTIR DE LA FECHA FACTURA, TRANSCURRIDO ESE PERIODO, SE FACTURARÁ A ${storageRate} €/MT POR DÍA.`;
   return xml.replace(/<w:p[\s\S]*?<\/w:p>/g, (paragraph) => {
     const normalizedText = normalizeForMatch(paragraphText(paragraph))
       .replace(/\s+/g, " ");
@@ -729,24 +731,9 @@ function updateStorageLine(xml, showStorageLine) {
       (normalizedText.includes("se facturar") && normalizedText.includes("eur/mt"));
 
     if (!isStorageParagraph) return paragraph;
-    if (!showStorageLine) {
-      return "";
-    }
-    if (!normalizedText.includes("0,22") && !normalizedText.includes("0.22")) {
-      return paragraph;
-    }
-    const currentText = paragraphText(paragraph);
-    const cleanedText = currentText
-      .replace(/\s*Y\s*0,22\s*EUR\/MT\s*PARA LA CHAPA\s*/i, " ")
-      .replace(/\s{2,}/g, " ")
-      .trim();
-    const normalizedCleaned = cleanedText.includes("PARA LA CHAPA")
-      ? cleanedText
-      : `${cleanedText} PARA LA CHAPA`;
-
     return replaceParagraphText(
       paragraph,
-      normalizedCleaned
+      storageText
     ).replace(/<w:color w:val="EE0000"\/>/g, '<w:color w:val="000000"/>');
   });
 }

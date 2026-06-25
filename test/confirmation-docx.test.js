@@ -16,6 +16,8 @@ test("inserts the merchandise table inside the confirmation Word", async () => {
   assert.ok(tableIndex > materialIndex);
   assert.match(documentXml, /S235JR/);
   assert.doesNotMatch(documentXml, /MERCANC(?:IA|\u00cdA)\s*:/);
+  assert.match(documentXml, /PESO \(MT\)/);
+  assert.doesNotMatch(documentXml, /CANTIDAD \(MT\)/);
   assert.doesNotMatch(documentXml, /PESO BOBINA \(MT\)/);
   assert.doesNotMatch(documentXml, /10,000 - 15,000 MT/);
 });
@@ -389,91 +391,48 @@ test("normalizes client name in signature to avoid embedded line breaks", async 
   assert.match(signatureTable, /<w:noWrap\/>/);
 });
 
-test("shows storage line only for formato 3 and keeps it black", async () => {
-  const sheetBuffer = await renderConfirmationDocx(
-    {
-      ...fakeConfirmation(),
-      hasSheetMaterial: true
-    },
-    {
-      mode: "formato3"
-    }
-  );
-  const sheetDoc = await JSZip.loadAsync(sheetBuffer);
-  const sheetXml = await sheetDoc.file("word/document.xml").async("string");
-  const sheetStorageParagraph = sheetXml.match(
-    /<w:p[\s\S]*?<\/w:p>/g
-  );
-  const storageParagraph = [...sheetStorageParagraph || []].find((paragraph) =>
-    /ALMACENAJES:[\s\S]*30 DIAS LIBRES/i.test(paragraph)
-  );
-
-  assert.ok(storageParagraph, "ALMACENAJES line should be present in formato 3");
-  assert.doesNotMatch(
-    storageParagraph,
-    /w:color w:val="EE0000"/,
-    "Storage line should not keep red color in formato 3"
-  );
-  assert.match(storageParagraph, /w:color w:val="000000"/);
-
-  const nonSheetBuffer = await renderConfirmationDocx(
-    {
-      ...fakeConfirmation(),
-      hasSheetMaterial: false
-    },
-    {
-      mode: "formato1"
-    }
-  );
-  const nonSheetDoc = await JSZip.loadAsync(nonSheetBuffer);
-  const nonSheetXml = await nonSheetDoc.file("word/document.xml").async("string");
-
-  assert.doesNotMatch(
-    nonSheetXml,
-    /ALMACENAJES: 30 DIAS LIBRES/
-  );
-});
-
-test("never includes the 30 días libres storage text when not chapa", async () => {
-  const nonChapaModes = ["formato1", "formato2"];
-  for (const mode of nonChapaModes) {
-    const nonSheetBuffer = await renderConfirmationDocx(
+test("shows storage line in all formats with rate by material type", async () => {
+  const modes = ["formato1", "formato2", "formato3"];
+  for (const mode of modes) {
+    const coilBuffer = await renderConfirmationDocx(
       {
         ...fakeConfirmation(),
         hasSheetMaterial: false
       },
       { mode }
     );
-    const nonSheetDoc = await JSZip.loadAsync(nonSheetBuffer);
-    const nonSheetXml = await nonSheetDoc.file("word/document.xml").async("string");
+    const coilDoc = await JSZip.loadAsync(coilBuffer);
+    const coilXml = await coilDoc.file("word/document.xml").async("string");
+    const coilStorageParagraph = storageParagraph(coilXml);
 
-    assert.doesNotMatch(
-      nonSheetXml,
-      /30 DIAS LIBRES A PARTIR DE LA FECHA FACTURA/
+    assert.ok(coilStorageParagraph, `ALMACENAJES line should be present in ${mode} for coil orders`);
+    assert.equal(
+      extractParagraphText(coilStorageParagraph),
+      "ALMACENAJES: 30 DÍAS LIBRES A PARTIR DE LA FECHA FACTURA, TRANSCURRIDO ESE PERIODO, SE FACTURARÁ A 0,15 €/MT POR DÍA."
     );
-    assert.doesNotMatch(nonSheetXml, /30 DIAS LIBRES/);
-    assert.doesNotMatch(nonSheetXml, /ALMACENAJES:/);
-  }
+    assert.doesNotMatch(coilStorageParagraph, /w:color w:val="EE0000"/);
+    assert.match(coilStorageParagraph, /w:color w:val="000000"/);
+    assert.doesNotMatch(coilXml, /PARA LA BOBINA|PARA LA CHAPA/);
 
-  const chapaLikeModes = ["formato1", "formato2"];
-  for (const mode of chapaLikeModes) {
-    const sheetButNonStorageBuffer = await renderConfirmationDocx(
+    const sheetBuffer = await renderConfirmationDocx(
       {
         ...fakeConfirmation(),
         hasSheetMaterial: true
       },
       { mode }
     );
-    const sheetButNonStorageDoc = await JSZip.loadAsync(sheetButNonStorageBuffer);
-    const sheetButNonStorageXml = await sheetButNonStorageDoc
-      .file("word/document.xml")
-      .async("string");
+    const sheetDoc = await JSZip.loadAsync(sheetBuffer);
+    const sheetXml = await sheetDoc.file("word/document.xml").async("string");
+    const sheetStorageParagraph = storageParagraph(sheetXml);
 
-    assert.doesNotMatch(
-      sheetButNonStorageXml,
-      /30 DIAS LIBRES A PARTIR DE LA FECHA FACTURA/
+    assert.ok(sheetStorageParagraph, `ALMACENAJES line should be present in ${mode} for sheet orders`);
+    assert.equal(
+      extractParagraphText(sheetStorageParagraph),
+      "ALMACENAJES: 30 DÍAS LIBRES A PARTIR DE LA FECHA FACTURA, TRANSCURRIDO ESE PERIODO, SE FACTURARÁ A 0,22 €/MT POR DÍA."
     );
-    assert.doesNotMatch(sheetButNonStorageXml, /ALMACENAJES:/);
+    assert.doesNotMatch(sheetStorageParagraph, /w:color w:val="EE0000"/);
+    assert.match(sheetStorageParagraph, /w:color w:val="000000"/);
+    assert.doesNotMatch(sheetXml, /PARA LA BOBINA|PARA LA CHAPA/);
   }
 });
 
@@ -519,6 +478,12 @@ function extractParagraphText(paragraph) {
     .join("")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function storageParagraph(documentXml) {
+  return [...documentXml.matchAll(/<w:p[\s\S]*?<\/w:p>/g)]
+    .map((match) => match[0])
+    .find((paragraph) => extractParagraphText(paragraph).startsWith("ALMACENAJES:"));
 }
 
 function unescapeXml(value) {
