@@ -369,52 +369,24 @@ test("always keeps fixed documentos lines in all formats", async () => {
   }
 });
 
-test("places client name in the right signature column", async () => {
+test("replaces signature block with final confirmation paragraph", async () => {
   const buffer = await renderConfirmationDocx(fakeConfirmation(), { mode: "formato1" });
   const zip = await JSZip.loadAsync(buffer);
   const documentXml = await zip.file("word/document.xml").async("string");
-  const tables = [...documentXml.matchAll(/<w:tbl>[\s\S]*?<\/w:tbl>/g)].map((match) => match[0]);
-  const signatureTable = tables.find(
-    (table) =>
-      table.includes("FOR AND ON BEHALF OF") &&
-      table.includes("STEEL TRADE ADVISORS, S.L.U.") &&
-      table.includes(fakeConfirmation().customer.fiscalName)
+  const paragraphs = [...documentXml.matchAll(/<w:p[\s\S]*?<\/w:p>/g)]
+    .map((match) => match[0]);
+  const finalParagraph = paragraphs.find((paragraph) =>
+    extractParagraphText(paragraph).startsWith("Salvo comunicación expresa en contra")
   );
 
-  assert.ok(signatureTable, "The final signature block should be a table with client name");
-  assert.match(signatureTable, /<w:gridCol/);
-  assert.match(signatureTable, /<w:jc w:val="left"\/>/);
-  assert.match(signatureTable, /<w:jc w:val="right"\/>/);
-});
-
-test("normalizes client name in signature to avoid embedded line breaks", async () => {
-  const signatureName = "ACME\r\nGLOBAL\u2028S.A.";
-  const buffer = await renderConfirmationDocx(
-    {
-      ...fakeConfirmation(),
-      customer: {
-        ...fakeConfirmation().customer,
-        fiscalName: signatureName
-      }
-    },
-    {
-      mode: "formato1"
-    }
+  assert.ok(finalParagraph, "The final confirmation paragraph should be present");
+  assert.equal(
+    extractParagraphText(finalParagraph),
+    "Salvo comunicación expresa en contra por escrito dentro de las 24 horas siguientes a la recepción de esta confirmación, el pedido se dará por confirmado en todos sus términos."
   );
-  const doc = await JSZip.loadAsync(buffer);
-  const documentXml = await doc.file("word/document.xml").async("string");
-  const tables = [...documentXml.matchAll(/<w:tbl>[\s\S]*?<\/w:tbl>/g)].map((match) => match[0]);
-  const signatureTable = tables.find(
-    (table) =>
-      /STEEL TRADE ADVISORS, S\.L\.U\./.test(table) &&
-      /ACME GLOBAL S\.A\./.test(table)
-  );
-  assert.ok(signatureTable, "The signature table should include normalized client name");
-
-  const signatureText = extractParagraphText(signatureTable);
-  assert.equal(signatureText.includes(signatureName), false);
-  assert.equal(signatureText.includes("ACME GLOBAL S.A."), true);
-  assert.match(signatureTable, /<w:noWrap\/>/);
+  assert.doesNotMatch(documentXml, /FOR AND ON BEHALF OF/);
+  assert.doesNotMatch(documentXml, /STEEL TRADE ADVISORS, S\.L\.U\./);
+  assert.doesNotMatch(documentXml, /TECHOS FALSTECH/);
 });
 
 test("shows storage line in all formats with rate by material type", async () => {

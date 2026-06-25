@@ -19,6 +19,8 @@ const LABEL_VALUE_PREFIXES = [
   "fuerza mayor"
 ];
 const BANK_DETAILS_TEXT = "DETALLES BANCARIOS: CAIXA BANK - ES40 2100 6428 2213 0012 3884";
+const FINAL_CONFIRMATION_TEXT =
+  "Salvo comunicación expresa en contra por escrito dentro de las 24 horas siguientes a la recepción de esta confirmación, el pedido se dará por confirmado en todos sus términos.";
 const RECLAMACIONES_TEXT =
   "RECLAMACIONES: Si se encuentran daños en las condiciones de los bienes, o hay alguna disputa sobre calidad/cantidad/peso, se debe enviar un reclamo, incluyendo fotografías, informe de inspección, descripción detallada del reclamo o problema, al vendedor después de la entrega con un máximo de 30 días después de la llegada de los Bienes a las instalaciones del cliente para defectos visibles y con un plazo de 45 para el resto de los defectos. Cualquier reclamo debe enviarse al vendedor por correo electrónico a al menos la siguiente dirección de correo electrónico: rfernandez@steeltradeadvisors.com.";
 
@@ -28,11 +30,6 @@ export async function renderConfirmationDocx(confirmation, { mode }) {
   const origin = getSingleOrigin(confirmation);
   const replacements = buildReplacements(confirmation, { mode, hasMultipleOrigins });
   const merchandiseTable = buildMerchandiseTableXml(confirmation, mode, hasMultipleOrigins);
-  const clientName = sanitizeSignatureName(
-    confirmation.customer
-      ? confirmation.customer.fiscalName || confirmation.customer.commercialName || ""
-      : ""
-  );
   await Promise.all(
     Object.keys(zip.files)
       .filter((name) => /^word\/.*\.xml$/.test(name))
@@ -58,7 +55,7 @@ export async function renderConfirmationDocx(confirmation, { mode }) {
             xml = replaceOriginLine(xml, `ORIGEN: ${origin}`);
           }
           xml = updateStorageLine(xml, storageRate);
-          xml = placeClientSignatureRight(xml, clientName);
+          xml = replaceSignatureBlockWithConfirmationNote(xml);
           xml = removePackingLine(xml);
           xml = removeBankDetails(xml, isTransferPaymentTerm(confirmation.paymentTerms));
           xml = replaceReclamacionesLine(xml);
@@ -844,9 +841,7 @@ function removePackingLine(xml) {
   });
 }
 
-function placeClientSignatureRight(xml, clientName) {
-  if (!clientName) return xml;
-
+function replaceSignatureBlockWithConfirmationNote(xml) {
   const paragraphMatches = [...xml.matchAll(/<w:p[\s\S]*?<\/w:p>/g)];
   const paragraphs = paragraphMatches.map((match) => match[0]);
   const headerParagraphIndex = paragraphs.findIndex((paragraph) => {
@@ -867,72 +862,20 @@ function placeClientSignatureRight(xml, clientName) {
   );
   if (signatureParagraphIndex < 0) return xml;
 
-  const headerParagraph = paragraphs[headerParagraphIndex];
   const signatureParagraph = paragraphs[signatureParagraphIndex];
   const headerMatch = paragraphMatches[headerParagraphIndex];
   const signatureMatch = paragraphMatches[signatureParagraphIndex];
   if (headerMatch.index === undefined || signatureMatch.index === undefined) return xml;
   if (signatureMatch.index < headerMatch.index) return xml;
 
-  const headerRun = headerParagraph.match(/<w:rPr>[\s\S]*?<\/w:rPr>/)?.[0];
-  const signatureRun = signatureParagraph.match(/<w:rPr>[\s\S]*?<\/w:rPr>/)?.[0];
-  const headerRunInner = headerRun
-    ? headerRun.replace("<w:rPr>", "").replace("</w:rPr>", "")
-    : "";
-  const signatureRunInner = signatureRun
-    ? signatureRun.replace("<w:rPr>", "").replace("</w:rPr>", "")
-    : headerRunInner;
-
-  const signatureTable = buildSignatureTable({
-    headerText: "FOR AND ON BEHALF OF",
-    leftBottomText: "STEEL TRADE ADVISORS, S.L.U.",
-    rightBottomText: clientName,
-    headerRunProps: headerRunInner,
-    bottomRunProps: signatureRunInner
-  });
+  const confirmationParagraph = replaceParagraphText(
+    removeParagraphBoldFromProperties(signatureParagraph),
+    FINAL_CONFIRMATION_TEXT
+  );
 
   const start = headerMatch.index;
   const end = signatureMatch.index + signatureMatch[0].length;
-  return `${xml.slice(0, start)}${signatureTable}${xml.slice(end)}`;
-}
-
-function buildSignatureTable({
-  headerText,
-  leftBottomText,
-  rightBottomText,
-  headerRunProps,
-  bottomRunProps
-}) {
-  const leftWidth = 5233;
-  const rightWidth = 5233;
-  const headerRunPr = headerRunProps || "";
-  const bottomRunPr = bottomRunProps || "";
-  const headerCell = (text, runProps, align) => [
-    "<w:tc>",
-    `<w:tcPr><w:tcW w:w="${leftWidth}" w:type="dxa"/><w:vAlign w:val="center"/><w:noWrap/></w:tcPr>`,
-    `<w:p><w:pPr><w:jc w:val="${align}"/></w:pPr>`,
-    `<w:r><w:rPr>${runProps}</w:rPr><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r>`,
-    "</w:p></w:tc>"
-  ].join("");
-  const bottomCell = (text, runProps, align) => [
-    "<w:tc>",
-    `<w:tcPr><w:tcW w:w="${rightWidth}" w:type="dxa"/><w:vAlign w:val="center"/><w:noWrap/></w:tcPr>`,
-    `<w:p><w:pPr><w:jc w:val="${align}"/></w:pPr>`,
-    `<w:r><w:rPr>${runProps}</w:rPr><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r>`,
-    "</w:p></w:tc>"
-  ].join("");
-
-  return [
-    "<w:tbl>",
-    "<w:tblPr>",
-    '<w:tblW w:w="10466" w:type="dxa"/>',
-    "<w:tblLayout w:type=\"fixed\"/>",
-    "</w:tblPr>",
-    `<w:tblGrid><w:gridCol w:w="${leftWidth}"/><w:gridCol w:w="${rightWidth}"/></w:tblGrid>`,
-    `<w:tr>${headerCell(headerText, headerRunPr, "left")}${headerCell(headerText, headerRunPr, "right")}</w:tr>`,
-    `<w:tr>${bottomCell(leftBottomText, bottomRunPr, "left")}${bottomCell(rightBottomText, bottomRunPr, "right")}</w:tr>`,
-    "</w:tbl>"
-  ].join("");
+  return `${xml.slice(0, start)}${confirmationParagraph}${xml.slice(end)}`;
 }
 
 function shouldRemovePackingLine(text) {
