@@ -19,7 +19,6 @@ export async function renderConfirmationDocx(confirmation, { mode }) {
   const clientName = confirmation.customer
     ? confirmation.customer.fiscalName || confirmation.customer.commercialName || ""
     : "";
-
   await Promise.all(
     Object.keys(zip.files)
       .filter((name) => /^word\/.*\.xml$/.test(name))
@@ -520,45 +519,51 @@ function shouldRemovePackingLine(text) {
 }
 
 function removeBankDetails(xml, showBankDetails) {
-  if (showBankDetails) {
-    const paragraphs = [...xml.matchAll(/<w:p[\s\S]*?<\/w:p>/g)].map(({ 0: paragraph }) => paragraph);
-    const withUpdatedHeader = paragraphs.map((paragraph) => {
+  if (!showBankDetails) {
+    return xml.replace(/<w:p[\s\S]*?<\/w:p>/g, (paragraph) => {
       const text = normalizeForMatch(paragraphText(paragraph));
-      if (isTransferOnlyBankHeader(text)) {
-        return replaceParagraphText(paragraph, "DETALLES BANCARIOS:");
-      }
-      return paragraph;
+      return isBankDetailsParagraph(text) ? "" : paragraph;
     });
-
-    const result = [];
-    for (let index = 0; index < withUpdatedHeader.length; index++) {
-      const paragraph = withUpdatedHeader[index];
-      const text = normalizeForMatch(paragraphText(paragraph));
-
-      result.push(paragraph);
-      if (!isCaixaBankLine(text)) {
-        continue;
-      }
-
-      const previous = result[result.length - 2];
-      const previousText = previous ? normalizeForMatch(paragraphText(previous)) : "";
-      if (previousText.includes("detalles bancarios")) {
-        continue;
-      }
-
-      result.pop();
-      const headerParagraph = replaceParagraphText(paragraph, "DETALLES BANCARIOS:");
-      result.push(headerParagraph, paragraph);
-    }
-    return result.join("");
   }
-  return xml.replace(/<w:p[\s\S]*?<\/w:p>/g, (paragraph) => {
-    const text = normalizeForMatch(paragraphText(paragraph));
-    if (isBankDetailsParagraph(text)) {
-      return "";
+
+  const paragraphRe = /<w:p[\s\S]*?<\/w:p>/g;
+  let result = "";
+  let lastIndex = 0;
+  let previousParagraphText = "";
+
+  let match = paragraphRe.exec(xml);
+  while (match) {
+    result += xml.slice(lastIndex, match.index);
+    const paragraph = match[0];
+    const paragraphTextNormalized = normalizeForMatch(paragraphText(paragraph));
+    const normalized = isTransferOnlyBankHeader(paragraphTextNormalized)
+      ? "detalles bancarios:"
+      : paragraphTextNormalized;
+
+    let updatedParagraph = isTransferOnlyBankHeader(paragraphTextNormalized)
+      ? replaceParagraphText(paragraph, "DETALLES BANCARIOS:")
+      : paragraph;
+
+    if (isCaixaBankLine(paragraphTextNormalized)) {
+      const hasDetailsHeader = previousParagraphText.includes("detalles bancarios");
+      if (!hasDetailsHeader) {
+        result += replaceParagraphText(paragraph, "DETALLES BANCARIOS:");
+        result += paragraph;
+        previousParagraphText = normalizeForMatch(paragraphText(paragraph));
+        lastIndex = match.index + match[0].length;
+        match = paragraphRe.exec(xml);
+        continue;
+      }
     }
-    return paragraph;
-  });
+
+    result += updatedParagraph;
+    previousParagraphText = normalized;
+    lastIndex = match.index + match[0].length;
+    match = paragraphRe.exec(xml);
+  }
+
+  result += xml.slice(lastIndex);
+  return result;
 }
 
 function isCaixaBankLine(text) {
